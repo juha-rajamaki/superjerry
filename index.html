@@ -71,22 +71,22 @@ document.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') 
 document.addEventListener('fullscreenchange', resizeCanvas);
 
 // ── Audio (Web Audio API, procedural SFX) ────
-// Context is created lazily on first user interaction to avoid browser buzz.
+// Context created lazily; suspended between sounds to silence browser buzz.
 let AC = null;
+let acSuspendTimer = null;
+
 function getAC() {
-  if (!AC) {
-    AC = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
   if (AC.state === 'suspended') AC.resume();
+  // Auto-suspend 1 second after last sound so the context goes quiet
+  clearTimeout(acSuspendTimer);
+  acSuspendTimer = setTimeout(() => { if (AC) AC.suspend(); }, 1000);
   return AC;
 }
 function resumeAC() { getAC(); }
-document.addEventListener('keydown',  resumeAC, { once: true });
-canvas.addEventListener('touchstart', resumeAC, { once: true });
 
 function playTone(freq, type, duration, vol=0.3, freqEnd=null) {
   const ac = getAC();
-  if (!ac) return;
   const o = ac.createOscillator();
   const g = ac.createGain();
   o.connect(g); g.connect(ac.destination);
