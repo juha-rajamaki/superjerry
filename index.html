@@ -396,7 +396,7 @@ function syncVirtualButtons() {
   if (vBtn.left)    keys['ArrowLeft']  = true;
   if (vBtn.right)   keys['ArrowRight'] = true;
   if (vBtn.down)    keys['ArrowDown']  = true;
-  if (vBtn.jump  && !prevVBtn.jump)  { justPressed['KeyZ'] = true; jumpBuffer = JUMP_BUFFER_FRAMES; }
+  if (vBtn.jump  && !prevVBtn.jump)  { justPressed['KeyZ'] = true; jumpBuffer = JUMP_BUFFER_FRAMES * 2; }
   if (vBtn.fire  && !prevVBtn.fire)    justPressed['KeyX'] = true;
   if (vBtn.restart && !prevVBtn.restart) justPressed['KeyR'] = true;
   prevVBtn = {...vBtn};
@@ -407,17 +407,17 @@ function syncVirtualButtons() {
 const touchZones = {};
 
 function defineTouchZones(cw, ch) {
-  // D-pad cluster: bottom-left
-  const pad = 80, btn = 70, gap = 6;
-  const lx = 20, ly = ch - pad*2 - gap - 10;
-  touchZones.left    = {x: lx,           y: ly + pad/2,  r: pad/2};
-  touchZones.right   = {x: lx + pad*1.5, y: ly + pad/2,  r: pad/2};
-  touchZones.down    = {x: lx + pad*0.75,y: ly + pad,    r: pad/2};
+  // D-pad cluster: bottom-left — bigger buttons
+  const pad = 110, btn = 100, gap = 8;
+  const lx = 24, ly = ch - pad*2 - gap - 8;
+  touchZones.left    = {x: lx,             y: ly + pad/2,  r: pad/2};
+  touchZones.right   = {x: lx + pad*1.6,   y: ly + pad/2,  r: pad/2};
+  touchZones.down    = {x: lx + pad*0.8,   y: ly + pad,    r: pad/2};
   // Action buttons: bottom-right
-  const rx = cw - 180, ry = ch - btn*1.8 - 10;
-  touchZones.jump    = {x: rx + btn,     y: ry,          r: btn/2};
-  touchZones.fire    = {x: rx,           y: ry + btn*0.6,r: btn/2};
-  touchZones.restart = {x: cw/2,         y: ch - 28,     r: 28, rect:true, w:80, h:28};
+  const rx = cw - 240, ry = ch - btn*1.9 - 8;
+  touchZones.jump    = {x: rx + btn*1.1,   y: ry,          r: btn/2};
+  touchZones.fire    = {x: rx,             y: ry + btn*0.7,r: btn/2};
+  touchZones.restart = {x: cw/2, y: ch - 32, r: 32, rect:true, w:110, h:36};
 }
 
 function hitTest(zone, tx, ty) {
@@ -505,18 +505,18 @@ function drawTouchControls() {
   defineTouchZones(W, H);
 
   ctx.save();
-  ctx.globalAlpha = 0.45;
+  ctx.globalAlpha = 0.55;
 
   function drawCircleBtn(zone, label, highlight) {
     ctx.beginPath();
     ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI*2);
-    ctx.fillStyle = highlight ? '#ffffff' : '#334466';
+    ctx.fillStyle = highlight ? '#ffffff' : '#1a2a44';
     ctx.fill();
-    ctx.strokeStyle = '#aabbdd';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = highlight ? '#fff' : '#7799cc';
+    ctx.lineWidth = 3;
     ctx.stroke();
     ctx.fillStyle = highlight ? '#000' : '#fff';
-    ctx.font = `bold ${Math.floor(zone.r * 0.6)}px sans-serif`;
+    ctx.font = `bold ${Math.floor(zone.r * 0.55)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, zone.x, zone.y);
@@ -527,7 +527,7 @@ function drawTouchControls() {
   drawCircleBtn(touchZones.right, '▶', vBtn.right);
   drawCircleBtn(touchZones.down,  '▼', vBtn.down);
   // Action buttons
-  ctx.globalAlpha = 0.55;
+  ctx.globalAlpha = 0.65;
   drawCircleBtn(touchZones.jump,  'JUMP', vBtn.jump);
   drawCircleBtn(touchZones.fire,  'FIRE', vBtn.fire);
 
@@ -902,7 +902,7 @@ function updatePlayer() {
   }
   if (jumpBuffer > 0) jumpBuffer--;
   // Variable jump height: releasing any jump key cuts the arc short
-  if (!keys['KeyZ'] && !keys['Space'] && !keys['ArrowUp'] && p.vy < -4) p.vy += 2;
+  if (!keys['KeyZ'] && !keys['Space'] && !keys['ArrowUp'] && !vBtn.jump && p.vy < -4) p.vy += 2;
 
   // Gravity
   p.vy += GRAV;
