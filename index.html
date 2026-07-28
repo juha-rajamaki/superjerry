@@ -352,7 +352,7 @@ const JUMP_BUFFER_FRAMES = 6;
 document.addEventListener('keydown', e => {
   if (!keys[e.code]) justPressed[e.code] = true;
   keys[e.code] = true;
-  if (e.code === 'Space' || e.code === 'KeyZ') jumpBuffer = JUMP_BUFFER_FRAMES;
+  if (e.code === 'Space' || e.code === 'KeyZ' || e.code === 'ArrowUp') jumpBuffer = JUMP_BUFFER_FRAMES;
   e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
