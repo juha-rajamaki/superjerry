@@ -148,6 +148,37 @@ let frameCount = 0;
 // Camera
 let camX = 0;
 
+// ── Toast notifications ───────────────────────
+const toasts = []; // {msg, timer, maxTimer}
+function showToast(msg, duration=180) {
+  toasts.push({msg, timer: duration, maxTimer: duration});
+}
+function updateToasts() {
+  for (let i=toasts.length-1; i>=0; i--) {
+    toasts[i].timer--;
+    if (toasts[i].timer <= 0) toasts.splice(i,1);
+  }
+}
+function drawToasts() {
+  let offsetY = 50;
+  for (const t of toasts) {
+    const alpha = Math.min(1, t.timer / 30, (t.maxTimer - t.timer) / 20 + 0.1);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    const tw = ctx.measureText(t.msg).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.beginPath();
+    ctx.roundRect(W/2 - tw/2 - 14, offsetY - 20, tw + 28, 30, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffee88';
+    ctx.fillText(t.msg, W/2, offsetY);
+    ctx.restore();
+    offsetY += 38;
+  }
+}
+
 // ── Level layout ─────────────────────────────
 // L = lava tile, # = solid brick, G = ground, . = empty
 // Platforms use objects below
@@ -156,7 +187,7 @@ const LEVEL_H = 15; // tiles tall
 
 // Tile map  (row 0 = top)
 const MAP_ROWS = 15;
-const MAP_COLS = 60;
+const MAP_COLS = 160; // 3× longer level
 
 // Build raw tile map as 2D array: 0=empty, 1=brick, 2=lava, 3=castle-wall, 4=castle-floor
 const tileMap = [];
@@ -171,60 +202,101 @@ function fillRect(r1,c1,r2,c2, t) {
       tileMap[r][c] = t;
 }
 
-// Castle walls (outer shell)
-fillRect(0,  0,  14, 0,  3); // left wall
-fillRect(0, 59,  14,59,  3); // right wall
-fillRect(0,  0,  0, 59,  3); // ceiling
-// Floor
-fillRect(13, 0,  14, 59, 4);
-// Lava pools
-fillRect(13, 5,  14, 10,  2);
-fillRect(13,16,  14, 21,  2);
-fillRect(13,28,  14, 34,  2);
-fillRect(13,42,  14, 47,  2);
-// Brick platforms
-// Section 1
-fillRect(10, 3,  10, 6,  1);
-fillRect( 8, 7,  8,  10, 1);
-fillRect( 6, 11, 6,  14, 1);
-fillRect( 8, 15, 8,  18, 1);
-// Section 2
-fillRect(10,20,  10, 24, 1);
-fillRect( 7,22,   7, 26, 1);
-fillRect( 9,27,   9, 30, 1);
-// Section 3
-fillRect(10,35,  10, 38, 1);
-fillRect( 7,36,   7, 40, 1);
-fillRect( 9,41,   9, 44, 1);
-fillRect( 6,45,   6, 48, 1);
-// Boss arena floor (solid)
-fillRect(13,50,  14, 58, 4);
-fillRect(10,50,  10, 52, 1);
-fillRect(10,56,  10, 58, 1);
-// Staircase to boss
-fillRect(12,48,  12, 49, 1);
-fillRect(11,49,  11, 49, 1);
+// ── Castle shell ─────────────────────────────
+fillRect(0,   0,  14,   0,  3); // left wall
+fillRect(0, 159,  14, 159,  3); // right wall
+fillRect(0,   0,   0, 159,  3); // ceiling
+// Floor (solid under non-lava sections)
+fillRect(13,  0,  14,  14,  4);
+fillRect(13, 23,  14,  27,  4);
+fillRect(13, 38,  14,  47,  4);
+fillRect(13, 58,  14,  67,  4);
+fillRect(13, 78,  14,  87,  4);
+fillRect(13, 98,  14, 107,  4);
+fillRect(13,118,  14, 127,  4);
+fillRect(13,138,  14, 147,  4);
 
-// Coins list
+// ── Lava pools (well-spaced, narrower) ───────
+fillRect(13, 15,  14,  22,  2);
+fillRect(13, 28,  14,  37,  2);
+fillRect(13, 48,  14,  57,  2);
+fillRect(13, 68,  14,  77,  2);
+fillRect(13, 88,  14,  97,  2);
+fillRect(13,108,  14, 117,  2);
+fillRect(13,128,  14, 137,  2);
+fillRect(13,148,  14, 155,  2);
+
+// ── Platforms – zone 1 (cols 1-37): gentle stepping stones ──
+fillRect(11, 2,  11, 6,  1);
+fillRect( 9, 8,   9,12,  1);
+fillRect( 7,14,   7,18,  1);
+fillRect( 9,20,   9,24,  1);
+fillRect(11,26,  11,30,  1);
+fillRect( 8,32,   8,36,  1);
+
+// ── Platforms – zone 2 (cols 38-77): slightly trickier ──
+fillRect(10,38,  10,43,  1);
+fillRect( 7,44,   7,49,  1);
+fillRect( 9,51,   9,55,  1);
+fillRect( 6,57,   6,62,  1);
+fillRect( 9,63,   9,67,  1);
+fillRect(11,69,  11,73,  1);
+fillRect( 8,75,   8,79,  1);
+
+// ── Platforms – zone 3 (cols 78-117): more variety ──
+fillRect(10, 80,  10, 84,  1);
+fillRect( 7, 85,   7, 89,  1);
+fillRect( 9, 91,   9, 95,  1);
+fillRect( 6, 97,   6,101,  1);
+fillRect( 9,103,   9,107,  1);
+fillRect(11,109,  11,113,  1);
+fillRect( 7,115,   7,119,  1);
+
+// ── Platforms – zone 4 (cols 118-147): final approach ──
+fillRect(10,120,  10,124,  1);
+fillRect( 7,125,   7,129,  1);
+fillRect( 9,131,   9,135,  1);
+fillRect( 6,137,   6,141,  1);
+fillRect( 9,143,   9,147,  1);
+
+// ── Boss arena (cols 148-158) ─────────────────
+fillRect(13,148,  14, 158,  4);
+fillRect(10,148,  10, 151,  1);
+fillRect(10,155,  10, 158,  1);
+// Staircase into arena
+fillRect(12,146,  12, 147,  1);
+fillRect(11,147,  11, 147,  1);
+
+// Coins list — one above each main platform
 const coinList = [
-  {x:4,y:9},{x:8,y:7},{x:12,y:5},{x:22,y:6},{x:36,y:6},
-  {x:46,y:5},{x:51,y:9},{x:57,y:9}
+  {x: 4,y:10},{x: 10,y:8},{x: 16,y:6},{x: 22,y:8},{x: 28,y:10},
+  {x: 34,y:7},{x: 41,y:9},{x: 46,y:6},{x: 52,y:8},{x: 60,y:5},
+  {x: 65,y:8},{x: 71,y:10},{x: 77,y:7},{x: 82,y:9},{x: 87,y:6},
+  {x: 93,y:8},{x: 99,y:5},{x:105,y:8},{x:111,y:10},{x:117,y:6},
+  {x:122,y:9},{x:127,y:6},{x:133,y:8},{x:139,y:5},{x:145,y:8},
+  {x:150,y:9},{x:156,y:9}
 ].map(c=>({col:c.x, row:c.y, collected:false}));
 
-// Fireballs enemies (castle fireballs from walls)
+// Fireballs enemies — slow & infrequent, spread across the longer level
 const fireballEmitters = [
-  {col:1, row:10, dir:1, timer:60},
-  {col:1, row: 7, dir:1, timer:120},
-  {col:58,row:10, dir:-1, timer:90},
+  {col:  1, row:10, dir: 1, timer:120},
+  {col: 40, row: 8, dir: 1, timer:200},
+  {col: 80, row: 9, dir: 1, timer:160},
+  {col:120, row: 8, dir: 1, timer:240},
+  {col:158, row:10, dir:-1, timer:180},
 ];
 let wallFireballs = []; // {x,y,vx,vy,life}
 
-// Lava geysers
+// Lava geysers — one per lava pool, short burst, long rest
 const geysers = [
-  {col:7,  timer:0, phase:0},
-  {col:18, timer:40,phase:0},
-  {col:31, timer:20,phase:0},
-  {col:45, timer:60,phase:0},
+  {col: 18, timer:  0, phase:0},
+  {col: 32, timer: 60, phase:0},
+  {col: 52, timer:120, phase:0},
+  {col: 72, timer: 40, phase:0},
+  {col: 92, timer: 80, phase:0},
+  {col:112, timer:160, phase:0},
+  {col:132, timer: 20, phase:0},
+  {col:151, timer:100, phase:0},
 ];
 let geyserParticles = [];
 
@@ -238,7 +310,7 @@ const player = {
   facingRight: true,
   fireMode: true,
   invincible: 0,
-  hp: 3,
+  hp: 5,
   // animation
   animFrame: 0,
   animTimer: 0,
@@ -248,17 +320,17 @@ const player = {
 let playerFireballs = []; // {x,y,vx,vy,bounces}
 
 // ── Boss ─────────────────────────────────────
-const BOSS_ARENA_X = TILE * 50;
+const BOSS_ARENA_X = TILE * 148;
 const boss = {
-  x: TILE * 54, y: TILE * 10,
+  x: TILE * 153, y: TILE * 10,
   w: 64, h: 64,
-  vx: -1.5, vy: 0,
-  hp: 10,
-  maxHp: 10,
-  phase: 1, // 1=normal, 2=enraged (hp<=5)
+  vx: -1.0, vy: 0,
+  hp: 6,
+  maxHp: 6,
+  phase: 1,
   fireTimer: 0,
-  fireCooldown: 120,
-  jumpTimer: 200,
+  fireCooldown: 180,
+  jumpTimer: 250,
   onGround: false,
   dead: false,
   deathTimer: 0,
@@ -807,7 +879,7 @@ function updatePlayer() {
 
   // Clamp to level
   if (p.x < TILE) p.x = TILE;
-  if (p.x + p.w > MAP_COLS * TILE - TILE) p.x = MAP_COLS * TILE - TILE - p.w;
+  if (p.x + p.w > (MAP_COLS - 1) * TILE) p.x = (MAP_COLS - 1) * TILE - p.w;
 
   // Invincibility frames
   if (p.invincible > 0) p.invincible--;
@@ -880,10 +952,10 @@ function updateBoss() {
 
   if (boss.hitFlash > 0) boss.hitFlash--;
 
-  // Phase 2 when below half health
+  // Phase 2 — still slower for kids
   if (boss.hp <= boss.maxHp/2) {
     boss.phase = 2;
-    boss.fireCooldown = 60;
+    boss.fireCooldown = 130;
   }
 
   // Move
@@ -893,8 +965,8 @@ function updateBoss() {
   boss.y += boss.vy;
 
   // Bounce off arena walls
-  if (boss.x < TILE*50) { boss.x = TILE*50; boss.vx = Math.abs(boss.vx); boss.facingRight = true; }
-  if (boss.x + boss.w > TILE*59) { boss.x = TILE*59-boss.w; boss.vx = -Math.abs(boss.vx); boss.facingRight = false; }
+  if (boss.x < TILE*148) { boss.x = TILE*148; boss.vx = Math.abs(boss.vx); boss.facingRight = true; }
+  if (boss.x + boss.w > TILE*158) { boss.x = TILE*158-boss.w; boss.vx = -Math.abs(boss.vx); boss.facingRight = false; }
 
   // Land on floor
   const bRow = Math.floor((boss.y+boss.h)/TILE);
@@ -913,11 +985,11 @@ function updateBoss() {
   // Jump periodically
   boss.jumpTimer--;
   if (boss.jumpTimer <= 0 && boss.onGround) {
-    boss.vy = -10 - (boss.phase===2 ? 3 : 0);
+    boss.vy = -8 - (boss.phase===2 ? 1 : 0);
     const dir = player.x < boss.x ? -1 : 1;
-    boss.vx = dir * (3 + Math.random()*2);
+    boss.vx = dir * (1.5 + Math.random()*1.5);
     boss.facingRight = dir > 0;
-    boss.jumpTimer = 80 + Math.random()*80;
+    boss.jumpTimer = 150 + Math.random()*100;
     sfxJump();
   }
 
@@ -927,11 +999,11 @@ function updateBoss() {
     const dx = player.x - boss.x;
     const dy = (player.y+player.h/2) - (boss.y+boss.h/2);
     const dist = Math.sqrt(dx*dx+dy*dy);
-    const speed = boss.phase===2 ? 5 : 3.5;
+    const speed = boss.phase===2 ? 3.0 : 2.2;
     bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:dx/dist*speed, vy:dy/dist*speed});
+    // Phase 2: one extra slightly off-aim shot (not triple spread)
     if (boss.phase===2) {
-      bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:(dx/dist*speed)+1.5, vy:dy/dist*speed});
-      bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:(dx/dist*speed)-1.5, vy:dy/dist*speed});
+      bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:(dx/dist*speed)+1.0, vy:dy/dist*speed});
     }
     boss.fireTimer = boss.fireCooldown;
     sfxFireball();
@@ -969,13 +1041,13 @@ function updateWallFireballs() {
   for (const em of fireballEmitters) {
     em.timer--;
     if (em.timer <= 0) {
-      em.timer = 90 + Math.floor(Math.random()*60);
+      em.timer = 180 + Math.floor(Math.random()*90);
       wallFireballs.push({
         x: em.col*TILE + (em.dir>0 ? TILE : 0),
         y: em.row*TILE + TILE/2,
-        vx: em.dir * 3,
+        vx: em.dir * 1.8,
         vy: 0,
-        life: 120,
+        life: 180,
       });
     }
   }
@@ -1000,8 +1072,8 @@ function updateWallFireballs() {
 function updateGeysers() {
   for (const g of geysers) {
     g.timer++;
-    const period = 120;
-    const active = (g.timer % period) < 40;
+    const period = 200;       // longer full cycle
+    const active = (g.timer % period) < 25; // shorter burst
     if (active && g.timer % 4 === 0) {
       const gx = g.col*TILE + TILE/2;
       const gy = 14*TILE;
@@ -1047,7 +1119,7 @@ function updateParticles() {
 function hurtPlayer() {
   if (player.invincible > 0) return;
   player.hp--;
-  player.invincible = 90;
+  player.invincible = 150; // longer grace period
   player.vy = -8;
   sfxHit();
   spawnParticles(player.x+player.w/2, player.y+player.h/2, 10, '#ff4444', 4);
@@ -1162,11 +1234,11 @@ function draw() {
   drawHpBar(boss);
 
   // Player HP hearts (bottom-left)
-  for (let i=0; i<3; i++) {
+  for (let i=0; i<5; i++) {
     ctx.fillStyle = i < player.hp ? '#ff2244' : '#442244';
     ctx.font = '22px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('♥', 12 + i*28, H - 12);
+    ctx.fillText('♥', 12 + i*26, H - 12);
   }
 
   // ── Title screen ──
@@ -1258,6 +1330,9 @@ function draw() {
     ctx.fillText('KING KOOPARD APPROACHES!', W/2, 60);
   }
 
+  // Toast notifications
+  drawToasts();
+
   // On-screen touch controls (drawn last, on top)
   drawTouchControls();
 }
@@ -1269,18 +1344,19 @@ function restart() {
   player.vx = 0; player.vy = 0;
   player.onGround = false; player.ducking = false;
   player.facingRight = true; player.fireMode = true;
-  player.invincible = 0; player.hp = 3;
+  player.invincible = 0; player.hp = 5;
   player.jumping = false;
   // Reset game
-  score = 0; lives = 3; coins = 0;
+  score = 0; lives = 5; coins = 0;
+  showToast('Press X to shoot fireballs at enemies!', 200);
   state = 'play';
   camX = 0;
   // Reset boss
-  boss.x = TILE*54; boss.y = TILE*10;
-  boss.vx = -1.5; boss.vy = 0;
-  boss.hp = 10; boss.phase = 1;
-  boss.fireTimer = 0; boss.fireCooldown = 120;
-  boss.jumpTimer = 200; boss.onGround = false;
+  boss.x = TILE*153; boss.y = TILE*10;
+  boss.vx = -1.0; boss.vy = 0;
+  boss.hp = 6; boss.maxHp = 6; boss.phase = 1;
+  boss.fireTimer = 0; boss.fireCooldown = 180;
+  boss.jumpTimer = 250; boss.onGround = false;
   boss.dead = false; boss.deathTimer = 0;
   boss.facingRight = false; boss.hitFlash = 0;
   bossActive = false;
@@ -1306,6 +1382,7 @@ function loop() {
     if (justPressed['Enter'] || justPressed['Space'] || justPressed['KeyZ'] ||
         justPressed['KeyX']  || justPressed['KeyR']  || vBtn.jump || vBtn.fire) {
       state = 'play';
+      showToast('Press X to shoot fireballs!', 200);
     }
   }
 
@@ -1327,11 +1404,13 @@ function loop() {
     updateCamera();
   }
 
-  // Boss activation zone
+  // Boss activation zone — show instructions toast when boss appears
   if (!bossActive && player.x > BOSS_ARENA_X - TILE*3 && state==='play') {
     bossActive = true;
+    showToast('🔥 Shoot the boss with fireballs! Press X to fire!', 240);
   }
 
+  updateToasts();
   draw();
 
   // Clear justPressed
