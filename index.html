@@ -138,8 +138,34 @@ const RUN_SPEED = 5.0;
 const JUMP_FORCE = -13.5;
 const FIREBALL_SPEED = 7;
 
+// ── Character colour palettes ─────────────────
+const CHAR_PALETTES = [
+  {
+    name: 'RED JERRY',
+    cap:     '#dd2222',
+    shirt:   '#dd2222',
+    overalls:'#2255cc',
+    badge:   '#ffaa00',
+  },
+  {
+    name: 'BLUE JERRY',
+    cap:     '#1155ee',
+    shirt:   '#1155ee',
+    overalls:'#22aa44',
+    badge:   '#ffdd00',
+  },
+  {
+    name: 'YELLOW JERRY',
+    cap:     '#ddaa00',
+    shirt:   '#ddaa00',
+    overalls:'#cc4400',
+    badge:   '#ffffff',
+  },
+];
+let selectedChar = 0; // index into CHAR_PALETTES
+
 // ── Game state ───────────────────────────────
-let state = 'title'; // 'title' | 'play' | 'dead' | 'win'
+let state = 'title'; // 'title' | 'select' | 'play' | 'dead' | 'win'
 let score = 0;
 let lives = 3;
 let coins = 0;
@@ -418,7 +444,20 @@ function updateVBtnFromTouches(touchList) {
   }
 }
 
-canvas.addEventListener('touchstart',  e => { e.preventDefault(); resumeAC(); updateVBtnFromTouches(e.touches); }, {passive:false});
+canvas.addEventListener('touchstart',  e => {
+  e.preventDefault(); resumeAC();
+  // Character select: tap on preview to pick, tap center/bottom to confirm
+  if (state === 'select' && e.touches.length > 0) {
+    const t = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const tx = (t.clientX - rect.left) * (800 / rect.width);
+    // Three columns: left=0, center=1, right=2
+    if (tx < 800/3)      selectedChar = 0;
+    else if (tx < 800*2/3) selectedChar = 1;
+    else                 selectedChar = 2;
+  }
+  updateVBtnFromTouches(e.touches);
+}, {passive:false});
 canvas.addEventListener('touchmove',   e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
 canvas.addEventListener('touchend',    e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
 canvas.addEventListener('touchcancel', e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
@@ -583,26 +622,21 @@ function drawPixelChar(x, y, color, size=1) {
   ctx.fillRect(x, y, size, size);
 }
 
-function drawPlayer(p) {
-  const sx = Math.round(p.x - camX);
-  const sy = Math.round(p.y);
-  if (p.invincible > 0 && Math.floor(frameCount/4)%2===0) return;
-
-  const flip = !p.facingRight;
+// Draw Jerry's body at origin (0,0) using given palette. scale=1 by default.
+function drawJerryBody(pal, ducking=false, scale=1) {
   ctx.save();
-  if (flip) { ctx.translate(sx + p.w/2, sy); ctx.scale(-1,1); ctx.translate(-p.w/2, 0); } else ctx.translate(sx, sy);
-
-  // Body (blue overalls)
-  ctx.fillStyle = '#2255cc';
+  ctx.scale(scale, scale);
+  // Overalls
+  ctx.fillStyle = pal.overalls;
   ctx.fillRect(4, 14, 20, 18);
-  // Shirt (red)
-  ctx.fillStyle = '#dd2222';
+  // Shirt
+  ctx.fillStyle = pal.shirt;
   ctx.fillRect(4, 8, 20, 10);
   // Skin
   ctx.fillStyle = '#f4b06a';
   ctx.fillRect(6, 2, 16, 12);
-  // Hair / cap (red)
-  ctx.fillStyle = '#dd2222';
+  // Cap
+  ctx.fillStyle = pal.cap;
   ctx.fillRect(4, 0, 20, 6);
   ctx.fillRect(2, 4, 4, 4);
   // Eyes
@@ -617,7 +651,7 @@ function drawPlayer(p) {
   ctx.fillRect(12, 18, 4, 3);
   // Shoes
   ctx.fillStyle = '#4a2200';
-  if (p.ducking) {
+  if (ducking) {
     ctx.fillRect(2, 24, 10, 8);
     ctx.fillRect(16, 24, 10, 8);
   } else {
@@ -625,12 +659,24 @@ function drawPlayer(p) {
     ctx.fillRect(16, 28, 10, 4);
   }
   // Fireball badge
-  if (p.fireMode) {
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(5,17,4,4);
-    ctx.fillStyle='#ff4400';
-    ctx.fillRect(6,18,2,2);
-  }
+  ctx.fillStyle = pal.badge;
+  ctx.fillRect(5,17,4,4);
+  ctx.fillStyle='#ff4400';
+  ctx.fillRect(6,18,2,2);
+  ctx.restore();
+}
+
+function drawPlayer(p) {
+  const sx = Math.round(p.x - camX);
+  const sy = Math.round(p.y);
+  if (p.invincible > 0 && Math.floor(frameCount/4)%2===0) return;
+
+  const pal = CHAR_PALETTES[selectedChar];
+  const flip = !p.facingRight;
+  ctx.save();
+  if (flip) { ctx.translate(sx + p.w/2, sy); ctx.scale(-1,1); ctx.translate(-p.w/2, 0); }
+  else { ctx.translate(sx, sy); }
+  drawJerryBody(pal, p.ducking);
   ctx.restore();
 }
 
@@ -1246,14 +1292,12 @@ function draw() {
     ctx.fillStyle = 'rgba(0,0,0,0.82)';
     ctx.fillRect(0, 0, W, H);
 
-    // Decorative lava glow at bottom
     const tg = ctx.createLinearGradient(0, H*0.6, 0, H);
     tg.addColorStop(0, 'rgba(0,0,0,0)');
     tg.addColorStop(1, 'rgba(220,60,0,0.4)');
     ctx.fillStyle = tg;
     ctx.fillRect(0, 0, W, H);
 
-    // Title
     ctx.textAlign = 'center';
     ctx.shadowColor = '#ff4400';
     ctx.shadowBlur = 24;
@@ -1265,25 +1309,90 @@ function draw() {
     ctx.fillText('JERRY', W/2, H/2);
     ctx.shadowBlur = 0;
 
-    // Subtitle
     ctx.fillStyle = '#cc8844';
     ctx.font = '22px monospace';
     ctx.fillText('LAVA CASTLE', W/2, H/2 + 46);
 
-    // Flashing prompt
     if (Math.floor(frameCount / 30) % 2 === 0) {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 20px monospace';
       ctx.fillText(isMobile ? 'TAP JUMP TO START' : 'PRESS ENTER TO START', W/2, H/2 + 100);
     }
 
-    // Controls reminder
     ctx.fillStyle = '#666';
     ctx.font = '13px monospace';
     ctx.fillText(isMobile
       ? 'D-PAD: Move  JUMP: Jump  FIRE: Shoot fireballs'
-      : 'ARROWS: Move  Z: Jump  X: Run/Fire  R: Restart  F: Fullscreen',
+      : 'ARROWS: Move  Z/Space/↑: Jump  X: Shoot  R: Restart  F: Fullscreen',
       W/2, H - 28);
+  }
+
+  // ── Character select screen ──
+  if (state === 'select') {
+    ctx.fillStyle = 'rgba(0,0,0,0.88)';
+    ctx.fillRect(0, 0, W, H);
+
+    const tg2 = ctx.createLinearGradient(0, H*0.7, 0, H);
+    tg2.addColorStop(0, 'rgba(0,0,0,0)');
+    tg2.addColorStop(1, 'rgba(220,60,0,0.35)');
+    ctx.fillStyle = tg2;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffdd00';
+    ctx.font = 'bold 36px monospace';
+    ctx.fillText('CHOOSE YOUR JERRY', W/2, 70);
+
+    // Draw three character previews
+    const positions = [W/2 - 200, W/2, W/2 + 200];
+    const PREVIEW_SCALE = 3.5;
+    const CHAR_W = 28 * PREVIEW_SCALE;
+    const CHAR_H = 32 * PREVIEW_SCALE;
+    const previewY = H/2 - CHAR_H/2;
+
+    CHAR_PALETTES.forEach((pal, i) => {
+      const cx = positions[i];
+      const selected = i === selectedChar;
+
+      // Selection box
+      ctx.strokeStyle = selected ? '#ffdd00' : '#444';
+      ctx.lineWidth = selected ? 4 : 2;
+      ctx.beginPath();
+      ctx.roundRect(cx - CHAR_W/2 - 18, previewY - 18, CHAR_W + 36, CHAR_H + 60, 10);
+      ctx.stroke();
+      if (selected) {
+        ctx.fillStyle = 'rgba(255,220,0,0.08)';
+        ctx.fill();
+      }
+
+      // Draw character preview
+      ctx.save();
+      ctx.translate(cx - CHAR_W/2, previewY);
+      drawJerryBody(pal, false, PREVIEW_SCALE);
+      ctx.restore();
+
+      // Name label
+      ctx.fillStyle = selected ? '#ffdd00' : '#aaa';
+      ctx.font = selected ? 'bold 15px monospace' : '13px monospace';
+      ctx.fillText(pal.name, cx, previewY + CHAR_H + 30);
+
+      // Arrow indicator on selected
+      if (selected) {
+        ctx.fillStyle = '#ffdd00';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.fillText('▲', cx, previewY + CHAR_H + 58);
+      }
+    });
+
+    // Navigation hint
+    if (Math.floor(frameCount / 30) % 2 === 0) {
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(isMobile ? 'TAP A COLOUR  •  JUMP TO CONFIRM' : '◀ ▶ TO CHOOSE   ENTER TO PLAY', W/2, H - 60);
+    }
+    ctx.fillStyle = '#555';
+    ctx.font = '13px monospace';
+    ctx.fillText('You can always press R to restart and pick again', W/2, H - 28);
   }
 
   // ── Game Over ──
@@ -1377,18 +1486,27 @@ function loop() {
   pollGamepad();
   syncVirtualButtons();
 
-  // Title screen: Enter, Space, Z, or touch-jump starts the game
+  // Title → character select
   if (state === 'title') {
     if (justPressed['Enter'] || justPressed['Space'] || justPressed['KeyZ'] ||
         justPressed['KeyX']  || justPressed['KeyR']  || vBtn.jump || vBtn.fire) {
+      state = 'select';
+    }
+  }
+
+  // Character select screen
+  if (state === 'select') {
+    if (justPressed['ArrowLeft']  || (vBtn.left  && !prevVBtn.left))  selectedChar = (selectedChar + 2) % 3;
+    if (justPressed['ArrowRight'] || (vBtn.right && !prevVBtn.right)) selectedChar = (selectedChar + 1) % 3;
+    if (justPressed['Enter'] || justPressed['Space'] || justPressed['KeyZ'] || vBtn.jump) {
       state = 'play';
       showToast('Press X to shoot fireballs!', 200);
     }
   }
 
-  // Restart (dead / win): keyboard R or touch restart button
+  // Restart (dead / win): go back to character select so they can repick
   if ((justPressed['KeyR'] || (vBtn.restart && !prevVBtn.restart)) &&
-      (state === 'dead' || state === 'win')) restart();
+      (state === 'dead' || state === 'win')) { restart(); state = 'select'; }
 
   if (state === 'play') {
     updatePlayer();
