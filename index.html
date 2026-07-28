@@ -71,23 +71,32 @@ document.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') 
 document.addEventListener('fullscreenchange', resizeCanvas);
 
 // ── Audio (Web Audio API, procedural SFX) ────
-const AC = new (window.AudioContext || window.webkitAudioContext)();
-function resumeAC() { if (AC.state === 'suspended') AC.resume(); }
-document.addEventListener('keydown', resumeAC, { once: true });
-
+// Context is created lazily on first user interaction to avoid browser buzz.
+let AC = null;
+function getAC() {
+  if (!AC) {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function resumeAC() { getAC(); }
+document.addEventListener('keydown',  resumeAC, { once: true });
+canvas.addEventListener('touchstart', resumeAC, { once: true });
 
 function playTone(freq, type, duration, vol=0.3, freqEnd=null) {
-  if (AC.state === 'suspended') return;
-  const o = AC.createOscillator();
-  const g = AC.createGain();
-  o.connect(g); g.connect(AC.destination);
+  const ac = getAC();
+  if (!ac) return;
+  const o = ac.createOscillator();
+  const g = ac.createGain();
+  o.connect(g); g.connect(ac.destination);
   o.type = type;
-  o.frequency.setValueAtTime(freq, AC.currentTime);
-  if (freqEnd !== null) o.frequency.linearRampToValueAtTime(freqEnd, AC.currentTime + duration);
-  g.gain.setValueAtTime(vol, AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + duration);
-  o.start(AC.currentTime);
-  o.stop(AC.currentTime + duration);
+  o.frequency.setValueAtTime(freq, ac.currentTime);
+  if (freqEnd !== null) o.frequency.linearRampToValueAtTime(freqEnd, ac.currentTime + duration);
+  g.gain.setValueAtTime(vol, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + duration);
+  o.start(ac.currentTime);
+  o.stop(ac.currentTime + duration);
 }
 function sfxJump()    { playTone(300, 'square', 0.12, 0.25, 600); }
 function sfxLand()    { playTone(80,  'sine',   0.08, 0.2); }
@@ -98,24 +107,26 @@ function sfxCoin()    { playTone(880, 'square',   0.15, 0.2, 1200); }
 function sfxFireball(){ playTone(600, 'sawtooth', 0.12, 0.18, 100); }
 function sfxBossHit() { playTone(150, 'sawtooth', 0.3, 0.4, 50); }
 function sfxBossDie() {
+  const ac = getAC();
   [0,0.1,0.2,0.3,0.4].forEach(t => {
-    const o = AC.createOscillator(), g = AC.createGain();
-    o.connect(g); g.connect(AC.destination);
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
     o.type = 'sawtooth';
-    o.frequency.setValueAtTime(300 - t*200, AC.currentTime + t);
-    g.gain.setValueAtTime(0.4, AC.currentTime + t);
-    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + t + 0.09);
-    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + 0.1);
+    o.frequency.setValueAtTime(300 - t*200, ac.currentTime + t);
+    g.gain.setValueAtTime(0.4, ac.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + t + 0.09);
+    o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.1);
   });
 }
 function sfxVictory() {
+  const ac = getAC();
   [523,659,784,1047].forEach((f,i) => {
-    const o = AC.createOscillator(), g = AC.createGain();
-    o.connect(g); g.connect(AC.destination);
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.connect(g); g.connect(ac.destination);
     o.type = 'square'; o.frequency.value = f;
-    g.gain.setValueAtTime(0.3, AC.currentTime + i*0.15);
-    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + i*0.15 + 0.3);
-    o.start(AC.currentTime + i*0.15); o.stop(AC.currentTime + i*0.15 + 0.3);
+    g.gain.setValueAtTime(0.3, ac.currentTime + i*0.15);
+    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + i*0.15 + 0.3);
+    o.start(ac.currentTime + i*0.15); o.stop(ac.currentTime + i*0.15 + 0.3);
   });
 }
 
@@ -277,14 +288,13 @@ const vBtn = { left:false, right:false, down:false, jump:false, fire:false, rest
 let prevVBtn = { left:false, right:false, down:false, jump:false, fire:false, restart:false };
 
 function syncVirtualButtons() {
-  const map = {
-    ArrowLeft:'left', ArrowRight:'right', ArrowDown:'down',
-    KeyZ:'jump', KeyX:'fire', KeyR:'restart'
-  };
-  for (const [code, vk] of Object.entries(map)) {
-    if (vBtn[vk] && !prevVBtn[vk]) justPressed[code] = true;
-    keys[code] = vBtn[vk];
-  }
+  // OR virtual buttons into keys — never overwrite real keyboard state
+  if (vBtn.left)    keys['ArrowLeft']  = true;
+  if (vBtn.right)   keys['ArrowRight'] = true;
+  if (vBtn.down)    keys['ArrowDown']  = true;
+  if (vBtn.jump  && !prevVBtn.jump)    justPressed['KeyZ'] = true;
+  if (vBtn.fire  && !prevVBtn.fire)    justPressed['KeyX'] = true;
+  if (vBtn.restart && !prevVBtn.restart) justPressed['KeyR'] = true;
   prevVBtn = {...vBtn};
 }
 
@@ -1184,7 +1194,7 @@ function draw() {
     if (Math.floor(frameCount / 30) % 2 === 0) {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 20px monospace';
-      ctx.fillText(isMobile ? 'TAP JUMP TO START' : 'PRESS Z TO START', W/2, H/2 + 100);
+      ctx.fillText(isMobile ? 'TAP JUMP TO START' : 'PRESS ENTER TO START', W/2, H/2 + 100);
     }
 
     // Controls reminder
@@ -1283,10 +1293,10 @@ function loop() {
   pollGamepad();
   syncVirtualButtons();
 
-  // Title screen: any action key or touch-jump starts the game
+  // Title screen: Enter, Space, Z, or touch-jump starts the game
   if (state === 'title') {
-    if (justPressed['KeyZ'] || justPressed['KeyR'] || justPressed['Space'] ||
-        justPressed['KeyX'] || vBtn.jump || vBtn.fire) {
+    if (justPressed['Enter'] || justPressed['Space'] || justPressed['KeyZ'] ||
+        justPressed['KeyX']  || justPressed['KeyR']  || vBtn.jump || vBtn.fire) {
       state = 'play';
     }
   }
