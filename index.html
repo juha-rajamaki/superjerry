@@ -272,9 +272,15 @@ let bossActive = false;
 // ── Keyboard ─────────────────────────────────
 const keys = {};
 const justPressed = {};
+// jumpBuffer: guarantees a jump keypress is seen for at least 6 frames
+// even if keyup fires before the next game frame (e.g. Space blurring a button).
+let jumpBuffer = 0;
+const JUMP_BUFFER_FRAMES = 6;
+
 document.addEventListener('keydown', e => {
   if (!keys[e.code]) justPressed[e.code] = true;
   keys[e.code] = true;
+  if (e.code === 'Space' || e.code === 'KeyZ') jumpBuffer = JUMP_BUFFER_FRAMES;
   e.preventDefault();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
@@ -292,7 +298,7 @@ function syncVirtualButtons() {
   if (vBtn.left)    keys['ArrowLeft']  = true;
   if (vBtn.right)   keys['ArrowRight'] = true;
   if (vBtn.down)    keys['ArrowDown']  = true;
-  if (vBtn.jump  && !prevVBtn.jump)    justPressed['KeyZ'] = true;
+  if (vBtn.jump  && !prevVBtn.jump)  { justPressed['KeyZ'] = true; jumpBuffer = JUMP_BUFFER_FRAMES; }
   if (vBtn.fire  && !prevVBtn.fire)    justPressed['KeyX'] = true;
   if (vBtn.restart && !prevVBtn.restart) justPressed['KeyR'] = true;
   prevVBtn = {...vBtn};
@@ -757,13 +763,15 @@ function updatePlayer() {
   // Ducking
   p.ducking = keys['ArrowDown'] && p.onGround;
 
-  // Jump
-  if ((justPressed['KeyZ'] || justPressed['Space']) && p.onGround && !p.ducking) {
+  // Jump — use buffer so Space/Z presses are never dropped
+  if (jumpBuffer > 0 && p.onGround && !p.ducking) {
     p.vy = JUMP_FORCE;
     p.onGround = false;
+    jumpBuffer = 0;
     sfxJump();
   }
-  // Variable jump height
+  if (jumpBuffer > 0) jumpBuffer--;
+  // Variable jump height: releasing jump key cuts the arc short
   if (!keys['KeyZ'] && !keys['Space'] && p.vy < -4) p.vy += 2;
 
   // Gravity
