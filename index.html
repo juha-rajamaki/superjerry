@@ -6,27 +6,31 @@
 <title>SuperJerry - Lava Castle</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; touch-action: none; }
-  canvas { display: block; image-rendering: pixelated; border: 2px solid #444; max-width: 100vw; max-height: 80vh; }
-  #info { color: #888; font-family: monospace; font-size: 11px; margin-top: 6px; }
-  #music-bar { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center; }
-  #music-bar label { color:#888; font-family:monospace; font-size:11px; }
-  #music-file { font-family:monospace; font-size:11px; color:#aaa; background:#111; border:1px solid #444; padding:2px 4px; cursor:pointer; }
-  #music-toggle { font-family:monospace; font-size:11px; background:#222; color:#aaa; border:1px solid #555; padding:3px 10px; cursor:pointer; }
-  #music-toggle:hover { background:#333; color:#fff; }
-  #music-vol { width:80px; accent-color:#884400; }
-  .mobile-only { display: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  #game-wrap { position: relative; }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+  #ui-overlay {
+    position: absolute; top: 0; right: 0;
+    padding: 4px 6px;
+    z-index: 10;
+  }
+  #fullscreen-btn {
+    cursor: pointer; padding: 3px 10px;
+    background: rgba(0,0,0,0.5); color: #aaa;
+    border: 1px solid #555; border-radius: 4px;
+    font-family: monospace; font-size: 13px;
+    user-select: none;
+  }
+  #fullscreen-btn:hover { background: rgba(80,80,80,0.7); color: #fff; }
 </style>
 </head>
 <body>
-<canvas id="c" width="800" height="480"></canvas>
-<div id="info">Arrow Keys: Move/Duck &nbsp;|&nbsp; Z: Jump &nbsp;|&nbsp; X: Run/Fire &nbsp;|&nbsp; R: Restart &nbsp;|&nbsp; M: Music toggle</div>
-<div id="music-bar">
-  <label>Music:</label>
-  <input type="file" id="music-file" accept="audio/*" title="Load Giana Sisters music file">
-  <button id="music-toggle" title="Toggle music (M)">&#9654; Play</button>
-  <label>Vol:</label>
-  <input type="range" id="music-vol" min="0" max="1" step="0.05" value="0.5">
+<div id="game-wrap">
+  <canvas id="c" width="800" height="480"></canvas>
+  <div id="ui-overlay">
+    <span id="fullscreen-btn" style="cursor:pointer;padding:2px 8px;background:#222;border:1px solid #555;border-radius:3px;font-size:13px;" title="Fullscreen (F)">⛶ FS</span>
+  </div>
 </div>
 <script>
 // ─────────────────────────────────────────────
@@ -34,54 +38,43 @@
 // ─────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-const W = 800, H = 480;
+const W = 800, H = 480; // internal game resolution (never changes)
+
+// ── Fullscreen scaling ────────────────────────
+const gameWrap = document.getElementById('game-wrap');
+
+function resizeCanvas() {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const scale = Math.min(vw / W, vh / H);
+  const cw = Math.floor(W * scale);
+  const ch = Math.floor(H * scale);
+  canvas.style.width  = cw + 'px';
+  canvas.style.height = ch + 'px';
+  gameWrap.style.width  = cw + 'px';
+  gameWrap.style.height = ch + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+// F key or button toggles browser fullscreen
+const fsBtn = document.getElementById('fullscreen-btn');
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+fsBtn.addEventListener('click', toggleFullscreen);
+document.addEventListener('keydown', e => { if (e.key === 'f' || e.key === 'F') toggleFullscreen(); });
+document.addEventListener('fullscreenchange', resizeCanvas);
 
 // ── Audio (Web Audio API, procedural SFX) ────
 const AC = new (window.AudioContext || window.webkitAudioContext)();
 function resumeAC() { if (AC.state === 'suspended') AC.resume(); }
 document.addEventListener('keydown', resumeAC, { once: true });
 
-// ── Music player ──────────────────────────────
-const musicEl = new Audio();
-musicEl.loop = true;
-let musicLoaded = false;
-let musicPlaying = false;
-
-const musicToggleBtn = document.getElementById('music-toggle');
-const musicFileInput  = document.getElementById('music-file');
-const musicVolSlider  = document.getElementById('music-vol');
-
-musicEl.volume = parseFloat(musicVolSlider.value);
-musicVolSlider.addEventListener('input', () => { musicEl.volume = parseFloat(musicVolSlider.value); });
-
-musicFileInput.addEventListener('change', () => {
-  const file = musicFileInput.files[0];
-  if (!file) return;
-  const url = URL.createObjectURL(file);
-  musicEl.src = url;
-  musicLoaded = true;
-  startMusic();
-});
-
-function startMusic() {
-  if (!musicLoaded) return;
-  resumeAC();
-  musicEl.play().then(() => {
-    musicPlaying = true;
-    musicToggleBtn.textContent = '⏸ Pause';
-  }).catch(() => {});
-}
-function stopMusic() {
-  musicEl.pause();
-  musicPlaying = false;
-  musicToggleBtn.textContent = '▶ Play';
-}
-function toggleMusic() {
-  if (!musicLoaded) { musicToggleBtn.textContent = '⚠ Load file first'; setTimeout(()=>{ musicToggleBtn.textContent='▶ Play'; },1500); return; }
-  if (musicPlaying) stopMusic(); else startMusic();
-}
-musicToggleBtn.addEventListener('click', toggleMusic);
-document.addEventListener('keydown', e => { if (e.code === 'KeyM') toggleMusic(); });
 
 function playTone(freq, type, duration, vol=0.3, freqEnd=null) {
   if (AC.state === 'suspended') return;
@@ -135,7 +128,7 @@ const JUMP_FORCE = -13.5;
 const FIREBALL_SPEED = 7;
 
 // ── Game state ───────────────────────────────
-let state = 'play'; // 'play' | 'dead' | 'win'
+let state = 'title'; // 'title' | 'play' | 'dead' | 'win'
 let score = 0;
 let lives = 3;
 let coins = 0;
@@ -399,8 +392,8 @@ function drawTouchControls() {
   drawCircleBtn(touchZones.jump,  'JUMP', vBtn.jump);
   drawCircleBtn(touchZones.fire,  'FIRE', vBtn.fire);
 
-  // Restart button (only on game-over / win screens)
-  if (state === 'dead' || state === 'win') {
+  // Restart button on game-over / win screens; "START" on title
+  if (state === 'dead' || state === 'win' || state === 'title') {
     ctx.globalAlpha = 0.7;
     const rz = touchZones.restart;
     ctx.beginPath();
@@ -411,7 +404,7 @@ function drawTouchControls() {
     ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('RESTART', rz.x, rz.y);
+    ctx.fillText(state === 'title' ? 'START' : 'RESTART', rz.x, rz.y);
   }
 
   ctx.restore();
@@ -509,7 +502,7 @@ function drawPlayer(p) {
 
   const flip = !p.facingRight;
   ctx.save();
-  if (flip) { ctx.translate(sx + p.w/2, 0); ctx.scale(-1,1); ctx.translate(-p.w/2, 0); } else ctx.translate(sx, 0);
+  if (flip) { ctx.translate(sx + p.w/2, sy); ctx.scale(-1,1); ctx.translate(-p.w/2, 0); } else ctx.translate(sx, sy);
 
   // Body (blue overalls)
   ctx.fillStyle = '#2255cc';
@@ -560,7 +553,7 @@ function drawBoss(b) {
   const flash = b.hitFlash > 0;
 
   ctx.save();
-  if (!b.facingRight) { ctx.translate(sx + b.w/2, 0); ctx.scale(-1,1); ctx.translate(-b.w/2,0); } else ctx.translate(sx, 0);
+  if (!b.facingRight) { ctx.translate(sx + b.w/2, sy); ctx.scale(-1,1); ctx.translate(-b.w/2,0); } else ctx.translate(sx, sy);
 
   // Body
   ctx.fillStyle = flash ? '#fff' : '#2a7a2a';
@@ -715,16 +708,17 @@ function drawBackground() {
 }
 
 function drawHUD() {
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  ctx.fillRect(0, 0, W, 32);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(0, 0, W, 38);
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 16px monospace';
+  ctx.font = 'bold 20px monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`JERRY  SCORE:${score.toString().padStart(6,'0')}`, 10, 22);
+  ctx.fillText(`JERRY  ${score.toString().padStart(6,'0')}`, 12, 26);
   ctx.textAlign = 'center';
-  ctx.fillText(`LIVES:${lives}  COINS:${coins}`, W/2, 22);
+  ctx.fillText(`♥×${lives}   ●×${coins}`, W/2, 26);
   ctx.textAlign = 'right';
-  ctx.fillText('LAVA CASTLE', W-10, 22);
+  ctx.fillStyle = '#ff6644';
+  ctx.fillText('LAVA CASTLE', W-12, 26);
 }
 
 // ── Game update ───────────────────────────────
@@ -1149,51 +1143,99 @@ function draw() {
   drawHUD();
   drawHpBar(boss);
 
-  // Player HP hearts
+  // Player HP hearts (bottom-left)
   for (let i=0; i<3; i++) {
     ctx.fillStyle = i < player.hp ? '#ff2244' : '#442244';
-    ctx.font = '18px sans-serif';
+    ctx.font = '22px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('♥', 10 + i*24, H - 10);
+    ctx.fillText('♥', 12 + i*28, H - 12);
   }
 
-  // Overlay screens
-  if (state === 'dead' || state === 'dead_temp') {
-    if (state === 'dead') {
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(0, 0, W, H);
-      ctx.fillStyle = '#ff2244';
-      ctx.font = 'bold 48px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('GAME OVER', W/2, H/2-20);
-      ctx.fillStyle = '#fff';
-      ctx.font = '20px monospace';
-      ctx.fillText('Press R to restart', W/2, H/2+30);
+  // ── Title screen ──
+  if (state === 'title') {
+    ctx.fillStyle = 'rgba(0,0,0,0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Decorative lava glow at bottom
+    const tg = ctx.createLinearGradient(0, H*0.6, 0, H);
+    tg.addColorStop(0, 'rgba(0,0,0,0)');
+    tg.addColorStop(1, 'rgba(220,60,0,0.4)');
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff4400';
+    ctx.shadowBlur = 24;
+    ctx.fillStyle = '#ffdd00';
+    ctx.font = 'bold 72px monospace';
+    ctx.fillText('SUPER', W/2, H/2 - 80);
+    ctx.fillStyle = '#ff4422';
+    ctx.font = 'bold 90px monospace';
+    ctx.fillText('JERRY', W/2, H/2);
+    ctx.shadowBlur = 0;
+
+    // Subtitle
+    ctx.fillStyle = '#cc8844';
+    ctx.font = '22px monospace';
+    ctx.fillText('LAVA CASTLE', W/2, H/2 + 46);
+
+    // Flashing prompt
+    if (Math.floor(frameCount / 30) % 2 === 0) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(isMobile ? 'TAP JUMP TO START' : 'PRESS Z TO START', W/2, H/2 + 100);
     }
+
+    // Controls reminder
+    ctx.fillStyle = '#666';
+    ctx.font = '13px monospace';
+    ctx.fillText(isMobile
+      ? 'D-PAD: Move  JUMP: Jump  FIRE: Shoot fireballs'
+      : 'ARROWS: Move  Z: Jump  X: Run/Fire  R: Restart  F: Fullscreen',
+      W/2, H - 28);
   }
 
-  if (state === 'win') {
+  // ── Game Over ──
+  if (state === 'dead') {
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#ffdd00';
-    ctx.font = 'bold 52px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('YOU WIN!', W/2, H/2-60);
+    ctx.fillStyle = '#ff2244';
+    ctx.font = 'bold 56px monospace';
+    ctx.fillText('GAME OVER', W/2, H/2 - 30);
     ctx.fillStyle = '#fff';
-    ctx.font = '24px monospace';
-    ctx.fillText('King Koopard defeated!', W/2, H/2-10);
-    ctx.font = '20px monospace';
-    ctx.fillText(`Score: ${score}`, W/2, H/2+30);
-    ctx.fillText(`Coins: ${coins}`, W/2, H/2+60);
+    ctx.font = '22px monospace';
+    ctx.fillText(isMobile ? 'Tap RESTART button' : 'Press R to restart', W/2, H/2 + 30);
     ctx.fillStyle = '#aaa';
     ctx.font = '16px monospace';
-    ctx.fillText('Press R to play again', W/2, H/2+100);
+    ctx.fillText(`Final score: ${score}`, W/2, H/2 + 62);
   }
 
-  // Boss activate hint
-  if (!bossActive && player.x > BOSS_ARENA_X - TILE*6) {
+  // ── Win ──
+  if (state === 'win') {
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ffdd00'; ctx.shadowBlur = 20;
+    ctx.fillStyle = '#ffdd00';
+    ctx.font = 'bold 64px monospace';
+    ctx.fillText('YOU WIN!', W/2, H/2 - 70);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#fff';
+    ctx.font = '26px monospace';
+    ctx.fillText('King Koopard defeated!', W/2, H/2 - 10);
+    ctx.font = '20px monospace';
+    ctx.fillText(`Score: ${score}   Coins: ${coins}`, W/2, H/2 + 34);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '16px monospace';
+    ctx.fillText(isMobile ? 'Tap RESTART to play again' : 'Press R to play again', W/2, H/2 + 80);
+  }
+
+  // ── Boss warning ──
+  if (state === 'play' && !bossActive && player.x > BOSS_ARENA_X - TILE*6) {
     ctx.fillStyle = 'rgba(200,0,0,0.85)';
-    ctx.font = 'bold 20px monospace';
+    ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('KING KOOPARD APPROACHES!', W/2, 60);
   }
@@ -1241,8 +1283,17 @@ function loop() {
   pollGamepad();
   syncVirtualButtons();
 
-  // Restart key
-  if (justPressed['KeyR']) restart();
+  // Title screen: any action key or touch-jump starts the game
+  if (state === 'title') {
+    if (justPressed['KeyZ'] || justPressed['KeyR'] || justPressed['Space'] ||
+        justPressed['KeyX'] || vBtn.jump || vBtn.fire) {
+      state = 'play';
+    }
+  }
+
+  // Restart (dead / win): keyboard R or touch restart button
+  if ((justPressed['KeyR'] || (vBtn.restart && !prevVBtn.restart)) &&
+      (state === 'dead' || state === 'win')) restart();
 
   if (state === 'play') {
     updatePlayer();
