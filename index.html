@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>SuperJerry - Lava Castle</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; touch-action: none; }
+  canvas { display: block; image-rendering: pixelated; border: 2px solid #444; max-width: 100vw; max-height: 80vh; }
+  #info { color: #888; font-family: monospace; font-size: 11px; margin-top: 6px; }
+  #music-bar { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; justify-content:center; }
+  #music-bar label { color:#888; font-family:monospace; font-size:11px; }
+  #music-file { font-family:monospace; font-size:11px; color:#aaa; background:#111; border:1px solid #444; padding:2px 4px; cursor:pointer; }
+  #music-toggle { font-family:monospace; font-size:11px; background:#222; color:#aaa; border:1px solid #555; padding:3px 10px; cursor:pointer; }
+  #music-toggle:hover { background:#333; color:#fff; }
+  #music-vol { width:80px; accent-color:#884400; }
+  .mobile-only { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="480"></canvas>
+<div id="info">Arrow Keys: Move/Duck &nbsp;|&nbsp; Z: Jump &nbsp;|&nbsp; X: Run/Fire &nbsp;|&nbsp; R: Restart &nbsp;|&nbsp; M: Music toggle</div>
+<div id="music-bar">
+  <label>Music:</label>
+  <input type="file" id="music-file" accept="audio/*" title="Load Giana Sisters music file">
+  <button id="music-toggle" title="Toggle music (M)">&#9654; Play</button>
+  <label>Vol:</label>
+  <input type="range" id="music-vol" min="0" max="1" step="0.05" value="0.5">
+</div>
+<script>
+// ─────────────────────────────────────────────
+//  SuperJerry – Lava Castle  (single-file game)
+// ─────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 480;
+
+// ── Audio (Web Audio API, procedural SFX) ────
+const AC = new (window.AudioContext || window.webkitAudioContext)();
+function resumeAC() { if (AC.state === 'suspended') AC.resume(); }
+document.addEventListener('keydown', resumeAC, { once: true });
+
+// ── Music player ──────────────────────────────
+const musicEl = new Audio();
+musicEl.loop = true;
+let musicLoaded = false;
+let musicPlaying = false;
+
+const musicToggleBtn = document.getElementById('music-toggle');
+const musicFileInput  = document.getElementById('music-file');
+const musicVolSlider  = document.getElementById('music-vol');
+
+musicEl.volume = parseFloat(musicVolSlider.value);
+musicVolSlider.addEventListener('input', () => { musicEl.volume = parseFloat(musicVolSlider.value); });
+
+musicFileInput.addEventListener('change', () => {
+  const file = musicFileInput.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  musicEl.src = url;
+  musicLoaded = true;
+  startMusic();
+});
+
+function startMusic() {
+  if (!musicLoaded) return;
+  resumeAC();
+  musicEl.play().then(() => {
+    musicPlaying = true;
+    musicToggleBtn.textContent = '⏸ Pause';
+  }).catch(() => {});
+}
+function stopMusic() {
+  musicEl.pause();
+  musicPlaying = false;
+  musicToggleBtn.textContent = '▶ Play';
+}
+function toggleMusic() {
+  if (!musicLoaded) { musicToggleBtn.textContent = '⚠ Load file first'; setTimeout(()=>{ musicToggleBtn.textContent='▶ Play'; },1500); return; }
+  if (musicPlaying) stopMusic(); else startMusic();
+}
+musicToggleBtn.addEventListener('click', toggleMusic);
+document.addEventListener('keydown', e => { if (e.code === 'KeyM') toggleMusic(); });
+
+function playTone(freq, type, duration, vol=0.3, freqEnd=null) {
+  if (AC.state === 'suspended') return;
+  const o = AC.createOscillator();
+  const g = AC.createGain();
+  o.connect(g); g.connect(AC.destination);
+  o.type = type;
+  o.frequency.setValueAtTime(freq, AC.currentTime);
+  if (freqEnd !== null) o.frequency.linearRampToValueAtTime(freqEnd, AC.currentTime + duration);
+  g.gain.setValueAtTime(vol, AC.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + duration);
+  o.start(AC.currentTime);
+  o.stop(AC.currentTime + duration);
+}
+function sfxJump()    { playTone(300, 'square', 0.12, 0.25, 600); }
+function sfxLand()    { playTone(80,  'sine',   0.08, 0.2); }
+function sfxFire()    { playTone(800, 'sawtooth', 0.1, 0.15, 200); }
+function sfxHit()     { playTone(100, 'sawtooth', 0.2, 0.3, 50); }
+function sfxDie()     { playTone(400, 'sawtooth', 0.4, 0.4, 50); }
+function sfxCoin()    { playTone(880, 'square',   0.15, 0.2, 1200); }
+function sfxFireball(){ playTone(600, 'sawtooth', 0.12, 0.18, 100); }
+function sfxBossHit() { playTone(150, 'sawtooth', 0.3, 0.4, 50); }
+function sfxBossDie() {
+  [0,0.1,0.2,0.3,0.4].forEach(t => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(300 - t*200, AC.currentTime + t);
+    g.gain.setValueAtTime(0.4, AC.currentTime + t);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + t + 0.09);
+    o.start(AC.currentTime + t); o.stop(AC.currentTime + t + 0.1);
+  });
+}
+function sfxVictory() {
+  [523,659,784,1047].forEach((f,i) => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = 'square'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.3, AC.currentTime + i*0.15);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + i*0.15 + 0.3);
+    o.start(AC.currentTime + i*0.15); o.stop(AC.currentTime + i*0.15 + 0.3);
+  });
+}
+
+// ── Constants ────────────────────────────────
+const TILE  = 32;
+const GRAV  = 0.55;
+const SPEED = 3.2;
+const RUN_SPEED = 5.0;
+const JUMP_FORCE = -13.5;
+const FIREBALL_SPEED = 7;
+
+// ── Game state ───────────────────────────────
+let state = 'play'; // 'play' | 'dead' | 'win'
+let score = 0;
+let lives = 3;
+let coins = 0;
+let frameCount = 0;
+
+// Camera
+let camX = 0;
+
+// ── Level layout ─────────────────────────────
+// L = lava tile, # = solid brick, G = ground, . = empty
+// Platforms use objects below
+const LEVEL_W = 60; // tiles wide
+const LEVEL_H = 15; // tiles tall
+
+// Tile map  (row 0 = top)
+const MAP_ROWS = 15;
+const MAP_COLS = 60;
+
+// Build raw tile map as 2D array: 0=empty, 1=brick, 2=lava, 3=castle-wall, 4=castle-floor
+const tileMap = [];
+for (let r = 0; r < MAP_ROWS; r++) {
+  tileMap.push(new Array(MAP_COLS).fill(0));
+}
+
+// Helper to fill rectangle in tile map
+function fillRect(r1,c1,r2,c2, t) {
+  for (let r=r1; r<=r2; r++)
+    for (let c=c1; c<=c2; c++)
+      tileMap[r][c] = t;
+}
+
+// Castle walls (outer shell)
+fillRect(0,  0,  14, 0,  3); // left wall
+fillRect(0, 59,  14,59,  3); // right wall
+fillRect(0,  0,  0, 59,  3); // ceiling
+// Floor
+fillRect(13, 0,  14, 59, 4);
+// Lava pools
+fillRect(13, 5,  14, 10,  2);
+fillRect(13,16,  14, 21,  2);
+fillRect(13,28,  14, 34,  2);
+fillRect(13,42,  14, 47,  2);
+// Brick platforms
+// Section 1
+fillRect(10, 3,  10, 6,  1);
+fillRect( 8, 7,  8,  10, 1);
+fillRect( 6, 11, 6,  14, 1);
+fillRect( 8, 15, 8,  18, 1);
+// Section 2
+fillRect(10,20,  10, 24, 1);
+fillRect( 7,22,   7, 26, 1);
+fillRect( 9,27,   9, 30, 1);
+// Section 3
+fillRect(10,35,  10, 38, 1);
+fillRect( 7,36,   7, 40, 1);
+fillRect( 9,41,   9, 44, 1);
+fillRect( 6,45,   6, 48, 1);
+// Boss arena floor (solid)
+fillRect(13,50,  14, 58, 4);
+fillRect(10,50,  10, 52, 1);
+fillRect(10,56,  10, 58, 1);
+// Staircase to boss
+fillRect(12,48,  12, 49, 1);
+fillRect(11,49,  11, 49, 1);
+
+// Coins list
+const coinList = [
+  {x:4,y:9},{x:8,y:7},{x:12,y:5},{x:22,y:6},{x:36,y:6},
+  {x:46,y:5},{x:51,y:9},{x:57,y:9}
+].map(c=>({col:c.x, row:c.y, collected:false}));
+
+// Fireballs enemies (castle fireballs from walls)
+const fireballEmitters = [
+  {col:1, row:10, dir:1, timer:60},
+  {col:1, row: 7, dir:1, timer:120},
+  {col:58,row:10, dir:-1, timer:90},
+];
+let wallFireballs = []; // {x,y,vx,vy,life}
+
+// Lava geysers
+const geysers = [
+  {col:7,  timer:0, phase:0},
+  {col:18, timer:40,phase:0},
+  {col:31, timer:20,phase:0},
+  {col:45, timer:60,phase:0},
+];
+let geyserParticles = [];
+
+// ── Player ───────────────────────────────────
+const player = {
+  x: TILE * 2, y: TILE * 11,
+  vx: 0, vy: 0,
+  w: 28, h: 32,
+  onGround: false,
+  ducking: false,
+  facingRight: true,
+  fireMode: true,
+  invincible: 0,
+  hp: 3,
+  // animation
+  animFrame: 0,
+  animTimer: 0,
+  running: false,
+  jumping: false,
+};
+let playerFireballs = []; // {x,y,vx,vy,bounces}
+
+// ── Boss ─────────────────────────────────────
+const BOSS_ARENA_X = TILE * 50;
+const boss = {
+  x: TILE * 54, y: TILE * 10,
+  w: 64, h: 64,
+  vx: -1.5, vy: 0,
+  hp: 10,
+  maxHp: 10,
+  phase: 1, // 1=normal, 2=enraged (hp<=5)
+  fireTimer: 0,
+  fireCooldown: 120,
+  jumpTimer: 200,
+  onGround: false,
+  dead: false,
+  deathTimer: 0,
+  facingRight: false,
+  hitFlash: 0,
+  // boss projectiles
+};
+let bossFireballs = []; // {x,y,vx,vy}
+let bossActive = false;
+
+// ── Keyboard ─────────────────────────────────
+const keys = {};
+const justPressed = {};
+document.addEventListener('keydown', e => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+  e.preventDefault();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// ── Mobile / Touch detection ──────────────────
+const isMobile = /Mobi|Android|iPhone|iPad|iPod|Touch/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints > 1);
+
+// Virtual button state (injected into keys/justPressed like keyboard)
+const vBtn = { left:false, right:false, down:false, jump:false, fire:false, restart:false };
+let prevVBtn = { left:false, right:false, down:false, jump:false, fire:false, restart:false };
+
+function syncVirtualButtons() {
+  const map = {
+    ArrowLeft:'left', ArrowRight:'right', ArrowDown:'down',
+    KeyZ:'jump', KeyX:'fire', KeyR:'restart'
+  };
+  for (const [code, vk] of Object.entries(map)) {
+    if (vBtn[vk] && !prevVBtn[vk]) justPressed[code] = true;
+    keys[code] = vBtn[vk];
+  }
+  prevVBtn = {...vBtn};
+}
+
+// ── On-screen D-pad & buttons (drawn on canvas) ──
+// Button hit areas in canvas-pixel space (set in drawTouchControls)
+const touchZones = {};
+
+function defineTouchZones(cw, ch) {
+  // D-pad cluster: bottom-left
+  const pad = 80, btn = 70, gap = 6;
+  const lx = 20, ly = ch - pad*2 - gap - 10;
+  touchZones.left    = {x: lx,           y: ly + pad/2,  r: pad/2};
+  touchZones.right   = {x: lx + pad*1.5, y: ly + pad/2,  r: pad/2};
+  touchZones.down    = {x: lx + pad*0.75,y: ly + pad,    r: pad/2};
+  // Action buttons: bottom-right
+  const rx = cw - 180, ry = ch - btn*1.8 - 10;
+  touchZones.jump    = {x: rx + btn,     y: ry,          r: btn/2};
+  touchZones.fire    = {x: rx,           y: ry + btn*0.6,r: btn/2};
+  touchZones.restart = {x: cw/2,         y: ch - 28,     r: 28, rect:true, w:80, h:28};
+}
+
+function hitTest(zone, tx, ty) {
+  if (zone.rect) {
+    return tx > zone.x - zone.w/2 && tx < zone.x + zone.w/2 &&
+           ty > zone.y - zone.h/2 && ty < zone.y + zone.h/2;
+  }
+  const dx = tx - zone.x, dy = ty - zone.y;
+  return dx*dx + dy*dy < zone.r*zone.r;
+}
+
+function updateVBtnFromTouches(touchList) {
+  vBtn.left = vBtn.right = vBtn.down = vBtn.jump = vBtn.fire = vBtn.restart = false;
+  for (let i=0; i<touchList.length; i++) {
+    const t = touchList[i];
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = 800 / rect.width;
+    const scaleY = 480 / rect.height;
+    const tx = (t.clientX - rect.left) * scaleX;
+    const ty = (t.clientY - rect.top)  * scaleY;
+    for (const [k, zone] of Object.entries(touchZones)) {
+      if (hitTest(zone, tx, ty)) vBtn[k] = true;
+    }
+  }
+}
+
+canvas.addEventListener('touchstart',  e => { e.preventDefault(); resumeAC(); updateVBtnFromTouches(e.touches); }, {passive:false});
+canvas.addEventListener('touchmove',   e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
+canvas.addEventListener('touchend',    e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
+canvas.addEventListener('touchcancel', e => { e.preventDefault(); updateVBtnFromTouches(e.touches); }, {passive:false});
+
+// ── Gamepad API ───────────────────────────────
+// Standard mapping: axes 0/1 = left stick, buttons 0=A(jump) 1=B(fire) 12-15=dpad
+let gamepadIndex = -1;
+window.addEventListener('gamepadconnected',    e => { gamepadIndex = e.gamepad.index; });
+window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === gamepadIndex) gamepadIndex = -1; });
+
+function pollGamepad() {
+  if (gamepadIndex < 0) return;
+  const gp = navigator.getGamepads ? navigator.getGamepads()[gamepadIndex] : null;
+  if (!gp) return;
+  const ax = gp.axes[0] ?? 0;
+  const ay = gp.axes[1] ?? 0;
+  // Inject as virtual buttons (merges with touch)
+  if (ax < -0.4) vBtn.left  = true;
+  if (ax >  0.4) vBtn.right = true;
+  if (ay >  0.4) vBtn.down  = true;
+  // Buttons: A=0 jump, B=1 / X=2 fire, Start=9 restart, dpad left=14 right=15 down=13
+  if (gp.buttons[0]?.pressed) vBtn.jump    = true;
+  if (gp.buttons[1]?.pressed || gp.buttons[2]?.pressed) vBtn.fire = true;
+  if (gp.buttons[9]?.pressed) vBtn.restart = true;
+  if (gp.buttons[14]?.pressed) vBtn.left   = true;
+  if (gp.buttons[15]?.pressed) vBtn.right  = true;
+  if (gp.buttons[13]?.pressed) vBtn.down   = true;
+}
+
+// ── Draw on-screen touch controls ────────────
+function drawTouchControls() {
+  if (!isMobile && gamepadIndex < 0) return; // only show on mobile or when pad connected
+  defineTouchZones(W, H);
+
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+
+  function drawCircleBtn(zone, label, highlight) {
+    ctx.beginPath();
+    ctx.arc(zone.x, zone.y, zone.r, 0, Math.PI*2);
+    ctx.fillStyle = highlight ? '#ffffff' : '#334466';
+    ctx.fill();
+    ctx.strokeStyle = '#aabbdd';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = highlight ? '#000' : '#fff';
+    ctx.font = `bold ${Math.floor(zone.r * 0.6)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, zone.x, zone.y);
+  }
+
+  // D-pad
+  drawCircleBtn(touchZones.left,  '◀', vBtn.left);
+  drawCircleBtn(touchZones.right, '▶', vBtn.right);
+  drawCircleBtn(touchZones.down,  '▼', vBtn.down);
+  // Action buttons
+  ctx.globalAlpha = 0.55;
+  drawCircleBtn(touchZones.jump,  'JUMP', vBtn.jump);
+  drawCircleBtn(touchZones.fire,  'FIRE', vBtn.fire);
+
+  // Restart button (only on game-over / win screens)
+  if (state === 'dead' || state === 'win') {
+    ctx.globalAlpha = 0.7;
+    const rz = touchZones.restart;
+    ctx.beginPath();
+    ctx.roundRect(rz.x - rz.w/2, rz.y - rz.h/2, rz.w, rz.h, 8);
+    ctx.fillStyle = '#882222';
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('RESTART', rz.x, rz.y);
+  }
+
+  ctx.restore();
+  ctx.textBaseline = 'alphabetic';
+}
+
+// ── Tile helpers ──────────────────────────────
+function getTile(col, row) {
+  if (col < 0 || col >= MAP_COLS || row < 0 || row >= MAP_ROWS) return 1;
+  return tileMap[row][col];
+}
+function isSolid(t) { return t === 1 || t === 3 || t === 4; }
+function isLava(t)  { return t === 2; }
+
+// AABB collision with tile map, returns {x,y,onGround,inLava}
+function moveAndCollide(entity) {
+  let {x, y, vx, vy, w, h} = entity;
+  let onGround = false;
+  let inLava = false;
+
+  // Move X
+  x += vx;
+  // Check horizontal tiles
+  const col1 = Math.floor(x / TILE);
+  const col2 = Math.floor((x + w - 1) / TILE);
+  const row1 = Math.floor(y / TILE);
+  const row2 = Math.floor((y + h - 1) / TILE);
+  for (let r = row1; r <= row2; r++) {
+    if (isSolid(getTile(col1, r)) && vx < 0) {
+      x = (col1 + 1) * TILE;
+      vx = 0;
+    }
+    if (isSolid(getTile(col2, r)) && vx > 0) {
+      x = col2 * TILE - w;
+      vx = 0;
+    }
+  }
+
+  // Move Y
+  y += vy;
+  const col1b = Math.floor(x / TILE);
+  const col2b = Math.floor((x + w - 1) / TILE);
+  const row1b = Math.floor(y / TILE);
+  const row2b = Math.floor((y + h - 1) / TILE);
+  for (let c = col1b; c <= col2b; c++) {
+    if (isSolid(getTile(c, row1b)) && vy < 0) {
+      y = (row1b + 1) * TILE;
+      vy = 0;
+    }
+    if (isSolid(getTile(c, row2b)) && vy > 0) {
+      y = row2b * TILE - h;
+      vy = 0;
+      onGround = true;
+    }
+    if (isLava(getTile(c, row1b)) || isLava(getTile(c, row2b))) inLava = true;
+  }
+
+  // Check lava overlap at feet
+  const footRow = Math.floor((y + h) / TILE);
+  for (let c = col1b; c <= col2b; c++) {
+    if (isLava(getTile(c, footRow))) inLava = true;
+  }
+
+  return {x, y, vx, vy, onGround, inLava};
+}
+
+// ── Particle system ───────────────────────────
+let particles = [];
+function spawnParticles(x, y, count, color, speed=3) {
+  for (let i=0; i<count; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const spd = Math.random() * speed + 1;
+    particles.push({
+      x, y,
+      vx: Math.cos(ang)*spd,
+      vy: Math.sin(ang)*spd - 2,
+      life: 30 + Math.random()*20,
+      maxLife: 50,
+      color,
+      r: 3 + Math.random()*3,
+    });
+  }
+}
+
+// ── Drawing helpers ───────────────────────────
+function drawPixelChar(x, y, color, size=1) {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, size, size);
+}
+
+function drawPlayer(p) {
+  const sx = Math.round(p.x - camX);
+  const sy = Math.round(p.y);
+  if (p.invincible > 0 && Math.floor(frameCount/4)%2===0) return;
+
+  const flip = !p.facingRight;
+  ctx.save();
+  if (flip) { ctx.translate(sx + p.w/2, 0); ctx.scale(-1,1); ctx.translate(-p.w/2, 0); } else ctx.translate(sx, 0);
+
+  // Body (blue overalls)
+  ctx.fillStyle = '#2255cc';
+  ctx.fillRect(4, 14, 20, 18);
+  // Shirt (red)
+  ctx.fillStyle = '#dd2222';
+  ctx.fillRect(4, 8, 20, 10);
+  // Skin
+  ctx.fillStyle = '#f4b06a';
+  ctx.fillRect(6, 2, 16, 12);
+  // Hair / cap (red)
+  ctx.fillStyle = '#dd2222';
+  ctx.fillRect(4, 0, 20, 6);
+  ctx.fillRect(2, 4, 4, 4);
+  // Eyes
+  ctx.fillStyle = '#000';
+  ctx.fillRect(10, 6, 3, 3);
+  ctx.fillRect(16, 6, 3, 3);
+  // Mustache
+  ctx.fillStyle = '#5c2e00';
+  ctx.fillRect(8, 11, 12, 3);
+  // Buttons
+  ctx.fillStyle = '#ffdd00';
+  ctx.fillRect(12, 18, 4, 3);
+  // Shoes
+  ctx.fillStyle = '#4a2200';
+  if (p.ducking) {
+    ctx.fillRect(2, 24, 10, 8);
+    ctx.fillRect(16, 24, 10, 8);
+  } else {
+    ctx.fillRect(2, 28, 10, 4);
+    ctx.fillRect(16, 28, 10, 4);
+  }
+  // Fireball badge
+  if (p.fireMode) {
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(5,17,4,4);
+    ctx.fillStyle='#ff4400';
+    ctx.fillRect(6,18,2,2);
+  }
+  ctx.restore();
+}
+
+function drawBoss(b) {
+  if (b.dead && b.deathTimer > 60) return;
+  const sx = Math.round(b.x - camX);
+  const sy = Math.round(b.y);
+  const flash = b.hitFlash > 0;
+
+  ctx.save();
+  if (!b.facingRight) { ctx.translate(sx + b.w/2, 0); ctx.scale(-1,1); ctx.translate(-b.w/2,0); } else ctx.translate(sx, 0);
+
+  // Body
+  ctx.fillStyle = flash ? '#fff' : '#2a7a2a';
+  ctx.fillRect(8, 16, 48, 40);
+  // Head
+  ctx.fillStyle = flash ? '#fff' : '#2a7a2a';
+  ctx.fillRect(10, 0, 44, 24);
+  // Spikes on head
+  ctx.fillStyle = flash ? '#fff' : '#aa3300';
+  for (let i=0; i<4; i++) ctx.fillRect(14+i*10, -8, 6, 10);
+  // Eyes
+  ctx.fillStyle = flash ? '#f00' : '#ff2200';
+  ctx.fillRect(16, 4, 12, 10);
+  ctx.fillRect(36, 4, 12, 10);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(19, 6, 6, 6);
+  ctx.fillRect(39, 6, 6, 6);
+  // Teeth
+  ctx.fillStyle = flash ? '#fff' : '#ffffcc';
+  ctx.fillRect(16, 18, 6, 6);
+  ctx.fillRect(26, 18, 6, 6);
+  ctx.fillRect(36, 18, 6, 6);
+  // Shell (back spikes)
+  ctx.fillStyle = flash ? '#fff' : '#aa3300';
+  ctx.fillRect(10, 20, 8, 10);
+  ctx.fillRect(46, 20, 8, 10);
+  // Arms
+  ctx.fillStyle = flash ? '#fff' : '#2a7a2a';
+  ctx.fillRect(0, 20, 14, 22);
+  ctx.fillRect(50, 20, 14, 22);
+  // Claws
+  ctx.fillStyle = flash ? '#fff' : '#dddd00';
+  ctx.fillRect(0, 40, 5, 5); ctx.fillRect(6, 42, 5, 5);
+  ctx.fillRect(49,40, 5, 5); ctx.fillRect(55, 42, 5, 5);
+  // Legs
+  ctx.fillStyle = flash ? '#fff' : '#2a7a2a';
+  ctx.fillRect(14, 52, 14, 12);
+  ctx.fillRect(36, 52, 14, 12);
+  // HP bar (always in world space)
+  ctx.restore();
+}
+
+function drawHpBar(b) {
+  if (!bossActive || b.dead) return;
+  const barW = 300, barH = 16;
+  const bx = W/2 - barW/2, by = 10;
+  ctx.fillStyle = '#333';
+  ctx.fillRect(bx-2, by-2, barW+4, barH+4);
+  ctx.fillStyle = b.hp > b.maxHp/2 ? '#22cc22' : '#cc2222';
+  ctx.fillRect(bx, by, barW * (b.hp/b.maxHp), barH);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('KING KOOPARD', W/2, by + barH - 2);
+}
+
+function drawTile(col, row) {
+  const t = getTile(col, row);
+  const x = col*TILE - camX;
+  const y = row*TILE;
+  if (x > W+TILE || x < -TILE) return;
+
+  if (t === 1) { // brick
+    ctx.fillStyle = '#883322';
+    ctx.fillRect(x, y, TILE, TILE);
+    ctx.fillStyle = '#aa4433';
+    ctx.fillRect(x+1, y+1, TILE-2, 6);
+    ctx.fillRect(x+1, y+TILE/2+1, TILE-2, 6);
+    ctx.strokeStyle = '#661100';
+    ctx.strokeRect(x+0.5, y+0.5, TILE-1, TILE-1);
+    ctx.fillStyle = '#662211';
+    ctx.fillRect(x, y+TILE/2, TILE, 2);
+    ctx.fillRect(x+TILE/2, y, 2, TILE);
+  } else if (t === 2) { // lava
+    const flicker = Math.sin(frameCount * 0.15 + col * 0.7) * 0.5 + 0.5;
+    ctx.fillStyle = `rgb(${Math.floor(200+55*flicker)}, ${Math.floor(50+30*flicker)}, 0)`;
+    ctx.fillRect(x, y, TILE, TILE);
+    // lava surface wave
+    ctx.fillStyle = '#ffaa00';
+    for (let i=0; i<TILE; i+=6) {
+      const h = 4 + Math.sin(frameCount*0.1 + (col*TILE+i)*0.3)*3;
+      ctx.fillRect(x+i, y, 5, h);
+    }
+  } else if (t === 3) { // castle wall
+    ctx.fillStyle = '#555566';
+    ctx.fillRect(x, y, TILE, TILE);
+    ctx.fillStyle = '#444455';
+    ctx.strokeStyle = '#333344';
+    ctx.strokeRect(x+0.5, y+0.5, TILE-1, TILE-1);
+    // stone pattern
+    if (row%2===0) {
+      ctx.fillStyle = '#666677';
+      ctx.fillRect(x+1, y+1, TILE/2-2, TILE-2);
+    } else {
+      ctx.fillStyle = '#666677';
+      ctx.fillRect(x+TILE/2+1, y+1, TILE/2-2, TILE-2);
+    }
+  } else if (t === 4) { // castle floor
+    ctx.fillStyle = '#445';
+    ctx.fillRect(x, y, TILE, TILE);
+    ctx.fillStyle = '#556';
+    ctx.fillRect(x+2, y+2, TILE-4, TILE-4);
+    ctx.strokeStyle = '#334';
+    ctx.strokeRect(x+0.5, y+0.5, TILE-1, TILE-1);
+  }
+}
+
+function drawCoin(cx, row, col) {
+  if (cx.collected) return;
+  const x = col*TILE + TILE/2 - camX;
+  const y = row*TILE + TILE/2;
+  const bob = Math.sin(frameCount*0.1 + col) * 3;
+  ctx.fillStyle = '#ffdd00';
+  ctx.beginPath();
+  ctx.arc(x, y+bob, 8, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = '#ffff88';
+  ctx.beginPath();
+  ctx.arc(x-2, y+bob-2, 3, 0, Math.PI*2);
+  ctx.fill();
+}
+
+function drawBackground() {
+  // Dark castle background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a0010');
+  grad.addColorStop(1, '#1a0000');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Glowing lava light from bottom
+  const lavaGlow = ctx.createLinearGradient(0, H*0.7, 0, H);
+  lavaGlow.addColorStop(0, 'rgba(200,50,0,0)');
+  lavaGlow.addColorStop(1, 'rgba(200,80,0,0.25)');
+  ctx.fillStyle = lavaGlow;
+  ctx.fillRect(0, 0, W, H);
+
+  // Torches on walls (fixed positions relative to camera)
+  for (let tx = -camX % 160; tx < W; tx += 160) {
+    const flicker = Math.sin(frameCount*0.2 + tx) * 3;
+    ctx.fillStyle = '#554422';
+    ctx.fillRect(tx, 80, 12, 24);
+    ctx.fillStyle = `rgba(255,${Math.floor(120+flicker*10)},0,0.9)`;
+    ctx.beginPath();
+    ctx.arc(tx+6, 74+flicker, 10+flicker, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,200,0,0.6)`;
+    ctx.beginPath();
+    ctx.arc(tx+6, 72+flicker, 5+flicker/2, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, W, 32);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(`JERRY  SCORE:${score.toString().padStart(6,'0')}`, 10, 22);
+  ctx.textAlign = 'center';
+  ctx.fillText(`LIVES:${lives}  COINS:${coins}`, W/2, 22);
+  ctx.textAlign = 'right';
+  ctx.fillText('LAVA CASTLE', W-10, 22);
+}
+
+// ── Game update ───────────────────────────────
+function updatePlayer() {
+  if (state !== 'play') return;
+  const p = player;
+
+  // Horizontal
+  const running = keys['KeyX'];
+  const maxSpd = running ? RUN_SPEED : SPEED;
+  p.running = running && Math.abs(p.vx) > SPEED * 0.8;
+
+  if (keys['ArrowLeft']) {
+    p.vx -= 0.8;
+    if (p.vx < -maxSpd) p.vx = -maxSpd;
+    p.facingRight = false;
+  } else if (keys['ArrowRight']) {
+    p.vx += 0.8;
+    if (p.vx > maxSpd) p.vx = maxSpd;
+    p.facingRight = true;
+  } else {
+    p.vx *= 0.75;
+    if (Math.abs(p.vx) < 0.1) p.vx = 0;
+  }
+
+  // Ducking
+  p.ducking = keys['ArrowDown'] && p.onGround;
+
+  // Jump
+  if (justPressed['KeyZ'] && p.onGround && !p.ducking) {
+    p.vy = JUMP_FORCE;
+    p.onGround = false;
+    sfxJump();
+  }
+  // Variable jump height
+  if (!keys['KeyZ'] && p.vy < -4) p.vy += 2;
+
+  // Gravity
+  p.vy += GRAV;
+  if (p.vy > 18) p.vy = 18;
+
+  const wasOnGround = p.onGround;
+  const res = moveAndCollide(p);
+  p.x = res.x; p.y = res.y; p.vx = res.vx; p.vy = res.vy;
+  p.onGround = res.onGround;
+  p.jumping = !p.onGround;
+
+  if (!wasOnGround && p.onGround) sfxLand();
+
+  // Fell off bottom
+  if (p.y > MAP_ROWS * TILE) killPlayer();
+
+  // Lava death
+  if (res.inLava) killPlayer();
+
+  // Fireball shoot
+  if (justPressed['KeyX'] && p.fireMode && !p.ducking) {
+    const dir = p.facingRight ? 1 : -1;
+    playerFireballs.push({
+      x: p.x + (p.facingRight ? p.w : 0),
+      y: p.y + 8,
+      vx: dir * FIREBALL_SPEED,
+      vy: -3,
+      bounces: 3,
+    });
+    sfxFire();
+  }
+
+  // Clamp to level
+  if (p.x < TILE) p.x = TILE;
+  if (p.x + p.w > MAP_COLS * TILE - TILE) p.x = MAP_COLS * TILE - TILE - p.w;
+
+  // Invincibility frames
+  if (p.invincible > 0) p.invincible--;
+
+  // Coin pickup
+  for (const c of coinList) {
+    if (c.collected) continue;
+    const cx = c.col*TILE + TILE/2;
+    const cy = c.row*TILE + TILE/2;
+    if (Math.abs(cx - (p.x+p.w/2)) < 20 && Math.abs(cy - (p.y+p.h/2)) < 20) {
+      c.collected = true;
+      coins++;
+      score += 100;
+      sfxCoin();
+      spawnParticles(cx, cy, 6, '#ffdd00', 4);
+    }
+  }
+}
+
+function updatePlayerFireballs() {
+  for (let i = playerFireballs.length-1; i >= 0; i--) {
+    const fb = playerFireballs[i];
+    fb.x += fb.vx;
+    fb.vy += GRAV * 0.5;
+    fb.y += fb.vy;
+
+    // Bounce off floor
+    const col = Math.floor(fb.x/TILE);
+    const row = Math.floor((fb.y+6)/TILE);
+    if (isSolid(getTile(col, row)) && fb.vy > 0) {
+      fb.vy = -Math.abs(fb.vy) * 0.7;
+      fb.bounces--;
+      if (fb.bounces <= 0 || Math.abs(fb.vy) < 1) { playerFireballs.splice(i,1); continue; }
+    }
+    // Hit wall
+    const colX = Math.floor((fb.x + (fb.vx>0?6:0))/TILE);
+    if (isSolid(getTile(colX, Math.floor(fb.y/TILE)))) { playerFireballs.splice(i,1); continue; }
+    // Out of bounds
+    if (fb.x < 0 || fb.x > MAP_COLS*TILE || fb.y > MAP_ROWS*TILE) { playerFireballs.splice(i,1); continue; }
+    // Hit lava
+    if (isLava(getTile(col, row))) { playerFireballs.splice(i,1); continue; }
+
+    // Hit boss
+    if (bossActive && !boss.dead) {
+      if (fb.x > boss.x && fb.x < boss.x+boss.w && fb.y > boss.y && fb.y < boss.y+boss.h) {
+        boss.hp--;
+        boss.hitFlash = 10;
+        sfxBossHit();
+        spawnParticles(fb.x, fb.y, 8, '#ff6600', 4);
+        score += 500;
+        playerFireballs.splice(i,1);
+        if (boss.hp <= 0) { boss.dead = true; sfxBossDie(); }
+        continue;
+      }
+    }
+  }
+}
+
+function updateBoss() {
+  if (!bossActive || boss.dead) {
+    if (boss.dead) {
+      boss.deathTimer++;
+      if (boss.deathTimer > 120) { state = 'win'; sfxVictory(); }
+    }
+    return;
+  }
+
+  // Activate boss when player enters arena
+  if (player.x > BOSS_ARENA_X - TILE*2) bossActive = true;
+
+  if (boss.hitFlash > 0) boss.hitFlash--;
+
+  // Phase 2 when below half health
+  if (boss.hp <= boss.maxHp/2) {
+    boss.phase = 2;
+    boss.fireCooldown = 60;
+  }
+
+  // Move
+  boss.vx *= 0.98;
+  boss.x += boss.vx;
+  boss.vy += GRAV;
+  boss.y += boss.vy;
+
+  // Bounce off arena walls
+  if (boss.x < TILE*50) { boss.x = TILE*50; boss.vx = Math.abs(boss.vx); boss.facingRight = true; }
+  if (boss.x + boss.w > TILE*59) { boss.x = TILE*59-boss.w; boss.vx = -Math.abs(boss.vx); boss.facingRight = false; }
+
+  // Land on floor
+  const bRow = Math.floor((boss.y+boss.h)/TILE);
+  const bCol1 = Math.floor(boss.x/TILE);
+  const bCol2 = Math.floor((boss.x+boss.w-1)/TILE);
+  let bOnGround = false;
+  for (let c=bCol1; c<=bCol2; c++) {
+    if (isSolid(getTile(c, bRow))) {
+      boss.y = bRow*TILE - boss.h;
+      boss.vy = 0;
+      bOnGround = true;
+    }
+  }
+  boss.onGround = bOnGround;
+
+  // Jump periodically
+  boss.jumpTimer--;
+  if (boss.jumpTimer <= 0 && boss.onGround) {
+    boss.vy = -10 - (boss.phase===2 ? 3 : 0);
+    const dir = player.x < boss.x ? -1 : 1;
+    boss.vx = dir * (3 + Math.random()*2);
+    boss.facingRight = dir > 0;
+    boss.jumpTimer = 80 + Math.random()*80;
+    sfxJump();
+  }
+
+  // Fire at player
+  boss.fireTimer--;
+  if (boss.fireTimer <= 0) {
+    const dx = player.x - boss.x;
+    const dy = (player.y+player.h/2) - (boss.y+boss.h/2);
+    const dist = Math.sqrt(dx*dx+dy*dy);
+    const speed = boss.phase===2 ? 5 : 3.5;
+    bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:dx/dist*speed, vy:dy/dist*speed});
+    if (boss.phase===2) {
+      bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:(dx/dist*speed)+1.5, vy:dy/dist*speed});
+      bossFireballs.push({x:boss.x+boss.w/2, y:boss.y+20, vx:(dx/dist*speed)-1.5, vy:dy/dist*speed});
+    }
+    boss.fireTimer = boss.fireCooldown;
+    sfxFireball();
+  }
+
+  // Hurt player on touch
+  if (!player.invincible && player.x < boss.x+boss.w && player.x+player.w > boss.x &&
+      player.y < boss.y+boss.h && player.y+player.h > boss.y) {
+    hurtPlayer();
+  }
+}
+
+function updateBossFireballs() {
+  for (let i=bossFireballs.length-1; i>=0; i--) {
+    const fb = bossFireballs[i];
+    fb.x += fb.vx;
+    fb.y += fb.vy;
+    // Out of screen
+    if (fb.x < 0||fb.x>MAP_COLS*TILE||fb.y>MAP_ROWS*TILE||fb.y<-TILE) { bossFireballs.splice(i,1); continue; }
+    // Hit solid
+    if (isSolid(getTile(Math.floor(fb.x/TILE),Math.floor(fb.y/TILE)))) { bossFireballs.splice(i,1); continue; }
+    // Hit player
+    if (!player.invincible &&
+        fb.x > player.x && fb.x < player.x+player.w &&
+        fb.y > player.y && fb.y < player.y+player.h) {
+      hurtPlayer();
+      spawnParticles(fb.x, fb.y, 6, '#ff6600', 3);
+      bossFireballs.splice(i,1);
+    }
+  }
+}
+
+function updateWallFireballs() {
+  // Emitters
+  for (const em of fireballEmitters) {
+    em.timer--;
+    if (em.timer <= 0) {
+      em.timer = 90 + Math.floor(Math.random()*60);
+      wallFireballs.push({
+        x: em.col*TILE + (em.dir>0 ? TILE : 0),
+        y: em.row*TILE + TILE/2,
+        vx: em.dir * 3,
+        vy: 0,
+        life: 120,
+      });
+    }
+  }
+  for (let i=wallFireballs.length-1; i>=0; i--) {
+    const fb = wallFireballs[i];
+    fb.x += fb.vx;
+    fb.life--;
+    if (fb.life<=0 || isSolid(getTile(Math.floor(fb.x/TILE),Math.floor(fb.y/TILE)))) {
+      wallFireballs.splice(i,1); continue;
+    }
+    // Hit player
+    if (!player.invincible &&
+        fb.x > player.x-8 && fb.x < player.x+player.w+8 &&
+        fb.y > player.y-8 && fb.y < player.y+player.h+8) {
+      hurtPlayer();
+      spawnParticles(fb.x, fb.y, 5, '#ff4400', 3);
+      wallFireballs.splice(i,1);
+    }
+  }
+}
+
+function updateGeysers() {
+  for (const g of geysers) {
+    g.timer++;
+    const period = 120;
+    const active = (g.timer % period) < 40;
+    if (active && g.timer % 4 === 0) {
+      const gx = g.col*TILE + TILE/2;
+      const gy = 14*TILE;
+      geyserParticles.push({
+        x: gx + (Math.random()-0.5)*TILE*0.8,
+        y: gy,
+        vx: (Math.random()-0.5)*1.5,
+        vy: -5 - Math.random()*5,
+        life: 30+Math.random()*20,
+        maxLife: 50,
+        color: '#ff6600',
+        r: 4+Math.random()*4,
+      });
+    }
+    // Hurt player if standing above active geyser
+    if (active) {
+      const gx = g.col*TILE;
+      if (player.x < gx+TILE && player.x+player.w > gx &&
+          player.y+player.h > 12*TILE && player.y < 14*TILE) {
+        if (!player.invincible) hurtPlayer();
+      }
+    }
+  }
+}
+
+function updateParticles() {
+  for (let i=particles.length-1; i>=0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.2;
+    p.life--;
+    if (p.life <= 0) particles.splice(i,1);
+  }
+  for (let i=geyserParticles.length-1; i>=0; i--) {
+    const p = geyserParticles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.15;
+    p.life--;
+    if (p.life <= 0) geyserParticles.splice(i,1);
+  }
+}
+
+function hurtPlayer() {
+  if (player.invincible > 0) return;
+  player.hp--;
+  player.invincible = 90;
+  player.vy = -8;
+  sfxHit();
+  spawnParticles(player.x+player.w/2, player.y+player.h/2, 10, '#ff4444', 4);
+  if (player.hp <= 0) killPlayer();
+}
+
+function killPlayer() {
+  if (state !== 'play') return;
+  lives--;
+  sfxDie();
+  spawnParticles(player.x+player.w/2, player.y+player.h/2, 20, '#ff4444', 6);
+  if (lives <= 0) {
+    state = 'dead';
+  } else {
+    // Respawn
+    setTimeout(() => {
+      player.x = TILE*2; player.y = TILE*11;
+      player.vx = 0; player.vy = 0;
+      player.hp = 3; player.invincible = 120;
+    }, 800);
+    state = 'dead_temp';
+    setTimeout(() => { state = 'play'; }, 800);
+  }
+}
+
+function updateCamera() {
+  const targetX = player.x - W/3;
+  camX += (targetX - camX) * 0.1;
+  if (camX < 0) camX = 0;
+  const maxCamX = MAP_COLS*TILE - W;
+  if (camX > maxCamX) camX = maxCamX;
+}
+
+// ── Draw ──────────────────────────────────────
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawBackground();
+
+  // Tiles
+  for (let r=0; r<MAP_ROWS; r++)
+    for (let c=0; c<MAP_COLS; c++)
+      drawTile(c, r);
+
+  // Coins
+  for (const c of coinList) drawCoin(c, c.row, c.col);
+
+  // Geyser particles
+  for (const p of geyserParticles) {
+    ctx.globalAlpha = p.life/p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - camX, p.y, p.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Wall fireballs
+  for (const fb of wallFireballs) {
+    const glow = Math.sin(frameCount*0.3)*0.3+0.7;
+    ctx.fillStyle = '#ff8800';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 8, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#ffdd00';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Player fireballs
+  for (const fb of playerFireballs) {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 6, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#ffdd00';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Boss fireballs
+  for (const fb of bossFireballs) {
+    ctx.fillStyle = '#ff2200';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 8, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#ff8800';
+    ctx.beginPath();
+    ctx.arc(fb.x - camX, fb.y, 4, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // Boss
+  if (bossActive) drawBoss(boss);
+
+  // Player
+  drawPlayer(player);
+
+  // Particles
+  for (const p of particles) {
+    ctx.globalAlpha = p.life/p.maxLife;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x - camX, p.y, p.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // HUD
+  drawHUD();
+  drawHpBar(boss);
+
+  // Player HP hearts
+  for (let i=0; i<3; i++) {
+    ctx.fillStyle = i < player.hp ? '#ff2244' : '#442244';
+    ctx.font = '18px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('♥', 10 + i*24, H - 10);
+  }
+
+  // Overlay screens
+  if (state === 'dead' || state === 'dead_temp') {
+    if (state === 'dead') {
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ff2244';
+      ctx.font = 'bold 48px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('GAME OVER', W/2, H/2-20);
+      ctx.fillStyle = '#fff';
+      ctx.font = '20px monospace';
+      ctx.fillText('Press R to restart', W/2, H/2+30);
+    }
+  }
+
+  if (state === 'win') {
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffdd00';
+    ctx.font = 'bold 52px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU WIN!', W/2, H/2-60);
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px monospace';
+    ctx.fillText('King Koopard defeated!', W/2, H/2-10);
+    ctx.font = '20px monospace';
+    ctx.fillText(`Score: ${score}`, W/2, H/2+30);
+    ctx.fillText(`Coins: ${coins}`, W/2, H/2+60);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '16px monospace';
+    ctx.fillText('Press R to play again', W/2, H/2+100);
+  }
+
+  // Boss activate hint
+  if (!bossActive && player.x > BOSS_ARENA_X - TILE*6) {
+    ctx.fillStyle = 'rgba(200,0,0,0.85)';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('KING KOOPARD APPROACHES!', W/2, 60);
+  }
+
+  // On-screen touch controls (drawn last, on top)
+  drawTouchControls();
+}
+
+// ── Restart ───────────────────────────────────
+function restart() {
+  // Reset player
+  player.x = TILE*2; player.y = TILE*11;
+  player.vx = 0; player.vy = 0;
+  player.onGround = false; player.ducking = false;
+  player.facingRight = true; player.fireMode = true;
+  player.invincible = 0; player.hp = 3;
+  player.jumping = false;
+  // Reset game
+  score = 0; lives = 3; coins = 0;
+  state = 'play';
+  camX = 0;
+  // Reset boss
+  boss.x = TILE*54; boss.y = TILE*10;
+  boss.vx = -1.5; boss.vy = 0;
+  boss.hp = 10; boss.phase = 1;
+  boss.fireTimer = 0; boss.fireCooldown = 120;
+  boss.jumpTimer = 200; boss.onGround = false;
+  boss.dead = false; boss.deathTimer = 0;
+  boss.facingRight = false; boss.hitFlash = 0;
+  bossActive = false;
+  // Reset projectiles & particles
+  playerFireballs = []; bossFireballs = []; wallFireballs = [];
+  particles = []; geyserParticles = [];
+  // Reset coins
+  for (const c of coinList) c.collected = false;
+  // Reset geysers
+  for (const g of geysers) { g.timer = 0; }
+}
+
+// ── Main loop ─────────────────────────────────
+function loop() {
+  frameCount++;
+
+  // Poll gamepad & sync virtual buttons into keys/justPressed
+  pollGamepad();
+  syncVirtualButtons();
+
+  // Restart key
+  if (justPressed['KeyR']) restart();
+
+  if (state === 'play') {
+    updatePlayer();
+    updatePlayerFireballs();
+    updateWallFireballs();
+    updateGeysers();
+    updateBoss();
+    updateBossFireballs();
+    updateParticles();
+    updateCamera();
+  } else {
+    updateParticles();
+    updateCamera();
+  }
+
+  // Boss activation zone
+  if (!bossActive && player.x > BOSS_ARENA_X - TILE*3 && state==='play') {
+    bossActive = true;
+  }
+
+  draw();
+
+  // Clear justPressed
+  for (const k in justPressed) delete justPressed[k];
+
+  requestAnimationFrame(loop);
+}
+
+defineTouchZones(W, H);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
