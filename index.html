@@ -889,8 +889,8 @@ function updatePlayer() {
     sfxJump();
   }
   if (jumpBuffer > 0) jumpBuffer--;
-  // Variable jump height: releasing jump key cuts the arc short
-  if (!keys['KeyZ'] && !keys['Space'] && p.vy < -4) p.vy += 2;
+  // Variable jump height: releasing any jump key cuts the arc short
+  if (!keys['KeyZ'] && !keys['Space'] && !keys['ArrowUp'] && p.vy < -4) p.vy += 2;
 
   // Gravity
   p.vy += GRAV;
