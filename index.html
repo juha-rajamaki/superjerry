@@ -758,13 +758,13 @@ function updatePlayer() {
   p.ducking = keys['ArrowDown'] && p.onGround;
 
   // Jump
-  if (justPressed['KeyZ'] && p.onGround && !p.ducking) {
+  if ((justPressed['KeyZ'] || justPressed['Space']) && p.onGround && !p.ducking) {
     p.vy = JUMP_FORCE;
     p.onGround = false;
     sfxJump();
   }
   // Variable jump height
-  if (!keys['KeyZ'] && p.vy < -4) p.vy += 2;
+  if (!keys['KeyZ'] && !keys['Space'] && p.vy < -4) p.vy += 2;
 
   // Gravity
   p.vy += GRAV;
