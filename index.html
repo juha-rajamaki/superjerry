@@ -373,6 +373,7 @@ const justPressed = {};
 // jumpBuffer: guarantees a jump keypress is seen for at least 6 frames
 // even if keyup fires before the next game frame (e.g. Space blurring a button).
 let jumpBuffer = 0;
+let touchJumpHeld = 0; // keeps arc tall after a touch jump tap
 const JUMP_BUFFER_FRAMES = 6;
 
 document.addEventListener('keydown', e => {
@@ -396,7 +397,7 @@ function syncVirtualButtons() {
   if (vBtn.left)    keys['ArrowLeft']  = true;
   if (vBtn.right)   keys['ArrowRight'] = true;
   if (vBtn.down)    keys['ArrowDown']  = true;
-  if (vBtn.jump  && !prevVBtn.jump)  { justPressed['KeyZ'] = true; jumpBuffer = JUMP_BUFFER_FRAMES * 2; }
+  if (vBtn.jump  && !prevVBtn.jump)  { justPressed['KeyZ'] = true; jumpBuffer = JUMP_BUFFER_FRAMES * 2; touchJumpHeld = 30; }
   if (vBtn.fire  && !prevVBtn.fire)    justPressed['KeyX'] = true;
   if (vBtn.restart && !prevVBtn.restart) justPressed['KeyR'] = true;
   prevVBtn = {...vBtn};
@@ -901,8 +902,9 @@ function updatePlayer() {
     sfxJump();
   }
   if (jumpBuffer > 0) jumpBuffer--;
-  // Variable jump height: releasing any jump key cuts the arc short
-  if (!keys['KeyZ'] && !keys['Space'] && !keys['ArrowUp'] && !vBtn.jump && p.vy < -4) p.vy += 2;
+  // Variable jump height: cut arc short only when no jump key held
+  if (touchJumpHeld > 0) touchJumpHeld--;
+  if (!keys['KeyZ'] && !keys['Space'] && !keys['ArrowUp'] && !vBtn.jump && touchJumpHeld <= 0 && p.vy < -4) p.vy += 2;
 
   // Gravity
   p.vy += GRAV;
